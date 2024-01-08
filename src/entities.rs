@@ -1,6 +1,6 @@
 use tokio::{io::AsyncWriteExt, net::TcpStream};
 
-use crate::PositionAndLook;
+use crate::packet::PlayerPositionLookPacket;
 
 #[derive(Debug, Clone)]
 pub enum Type {
@@ -11,7 +11,7 @@ pub async fn spawned_named_entity(
     stream: &mut TcpStream,
     eid: i32,
     name: &str,
-    pos_and_look: &PositionAndLook,
+    pos_and_look: &PlayerPositionLookPacket,
 ) {
     let mut named_entity_spawn = vec![0x14];
     named_entity_spawn.extend_from_slice(&eid.to_be_bytes());

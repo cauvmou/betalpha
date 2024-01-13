@@ -1,15 +1,14 @@
-use std::cell::{BorrowMutError, Ref, RefCell, RefMut};
-use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::cell::RefCell;
+use std::collections::{HashMap};
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
-use rayon::prelude::*;
 use crate::util::base36_from_u64;
 use crate::world::util::{read_nbt_bool, read_nbt_byte_array, read_nbt_i32, read_nbt_i64};
 
 mod util {
     pub fn read_nbt_i64(blob: &nbt::Blob, name: &'static str) -> std::io::Result<i64> {
         if let nbt::Value::Long(v) = blob.get(name).ok_or(std::io::Error::new(std::io::ErrorKind::NotFound, "Field does not exist!"))? {
-            return Ok(*v)
+            return Ok(*v);
         } else {
             Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "Field has wrong type!"))
         }
@@ -17,7 +16,7 @@ mod util {
 
     pub fn read_nbt_i32(blob: &nbt::Blob, name: &'static str) -> std::io::Result<i32> {
         if let nbt::Value::Int(v) = blob.get(name).ok_or(std::io::Error::new(std::io::ErrorKind::NotFound, "Field does not exist!"))? {
-            return Ok(*v)
+            return Ok(*v);
         } else {
             Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "Field has wrong type!"))
         }
@@ -25,7 +24,7 @@ mod util {
 
     pub fn read_nbt_byte(blob: &nbt::Blob, name: &'static str) -> std::io::Result<i8> {
         if let nbt::Value::Byte(v) = blob.get(name).ok_or(std::io::Error::new(std::io::ErrorKind::NotFound, "Field does not exist!"))? {
-            return Ok(*v)
+            return Ok(*v);
         } else {
             Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "Field has wrong type!"))
         }
@@ -40,7 +39,7 @@ mod util {
             return Ok(unsafe {
                 let slice = std::ptr::slice_from_raw_parts(v.as_ptr() as *const u8, v.len());
                 Vec::from(slice.as_ref().unwrap())
-            })
+            });
         } else {
             Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "Field has wrong type!"))
         }
@@ -58,8 +57,7 @@ pub struct World {
 }
 
 impl World {
-    pub fn load(world_path: &PathBuf) -> std::io::Result<Self> {
-        // parse level.dat
+    pub fn open(world_path: &PathBuf) -> std::io::Result<Self> {
         let (seed, spawn, time, size_on_disk, last_played) = {
             let mut file = std::fs::File::open(world_path.join("level.dat"))?;
             let blob = nbt::Blob::from_gzip_reader(&mut file)?;
@@ -82,6 +80,21 @@ impl World {
             size_on_disk,
             last_played,
         })
+    }
+
+    pub fn close(self) -> std::io::Result<()> {
+        let mut file = std::fs::File::open(self.path.join("level.dat"))?;
+        let mut blob = nbt::Blob::new();
+        blob.insert("RandomSeed", nbt::Value::Long(self.seed as i64))?;
+        blob.insert("SpawnX", nbt::Value::Int(self.spawn[0]))?;
+        blob.insert("SpawnY", nbt::Value::Int(self.spawn[1]))?;
+        blob.insert("SpawnZ", nbt::Value::Int(self.spawn[2]))?;
+        blob.insert("Time", nbt::Value::Long(self.time as i64))?;
+        let size = fs_extra::dir::get_size(self.path).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+        blob.insert("SizeOnDisk", nbt::Value::Long(size as i64))?;
+        blob.insert("LastPlayed", nbt::Value::Long(std::time::UNIX_EPOCH.elapsed().unwrap().as_secs() as i64))?;
+        blob.to_gzip_writer(&mut file)?;
+        Ok(())
     }
 
     /// Gets a chunk from loaded chunks or loads the chunk into memory.
@@ -108,7 +121,7 @@ impl World {
 
         if let Some(chunk) = self.chunks.remove(&key) {
             match chunk.try_borrow_mut() {
-                Ok(mut chunk) => {chunk.save()}
+                Ok(mut chunk) => { chunk.save(&self.path) }
                 Err(e) => {
                     self.chunks.insert(key, chunk.clone());
                     Err(std::io::Error::new(std::io::ErrorKind::Other, e))
@@ -166,8 +179,34 @@ impl Chunk {
         })
     }
 
-    pub fn save(&mut self) -> std::io::Result<()> {
-        todo!()
+    pub fn save(&mut self, world_path: &Path) -> std::io::Result<()> {
+        let (x_string, z_string) = (base36_from_u64(self.chunk_x as u64), base36_from_u64(self.chunk_z as u64));
+        let (high_level, low_level) = (base36_from_u64(self.chunk_x as u64 % 64), base36_from_u64(self.chunk_z as u64 % 64));
+        let file_name = format!("c.{x_string}.{z_string}.dat");
+        let file_path = world_path.join(high_level).join(low_level).join(file_name);
+
+        {
+            let vu8_vi8 = |x: &Vec<u8>| -> Vec<i8> {
+                unsafe {
+                    let slice = std::ptr::slice_from_raw_parts(x.as_ptr() as *const i8, x.len());
+                    Vec::from(slice.as_ref().unwrap())
+                }
+            };
+
+            let mut file = std::fs::File::open(file_path)?;
+            let mut blob = nbt::Blob::new();
+            blob.insert("TerrainPopulated", nbt::Value::Byte(self.terrain_populated as i8))?;
+            blob.insert("LastUpdate", nbt::Value::Long(self.last_update as i64))?;
+            blob.insert("Blocks", nbt::Value::ByteArray(vu8_vi8(&self.blocks)))?;
+            blob.insert("Data", nbt::Value::ByteArray(vu8_vi8(&self.data)))?;
+            blob.insert("BlockLight", nbt::Value::ByteArray(vu8_vi8(&self.block_light)))?;
+            blob.insert("SkyLight", nbt::Value::ByteArray(vu8_vi8(&self.sky_light)))?;
+            blob.insert("HeightMap", nbt::Value::ByteArray(vu8_vi8(&self.height_map)))?;
+
+            blob.to_gzip_writer(&mut file)?;
+        }
+
+        Ok(())
     }
 }
 

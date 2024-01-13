@@ -57,7 +57,7 @@ pub struct World {
 }
 
 impl World {
-    pub fn open(world_path: &PathBuf) -> std::io::Result<Self> {
+    pub fn open(world_path: &Path) -> std::io::Result<Self> {
         let (seed, spawn, time, size_on_disk, last_played) = {
             let mut file = std::fs::File::open(world_path.join("level.dat"))?;
             let blob = nbt::Blob::from_gzip_reader(&mut file)?;
@@ -72,7 +72,7 @@ impl World {
         };
 
         Ok(Self {
-            path: world_path.clone(),
+            path: world_path.to_path_buf(),
             chunks: HashMap::with_capacity(u16::MAX as usize),
             seed,
             spawn,
@@ -146,7 +146,7 @@ pub struct Chunk {
 }
 
 impl Chunk {
-    pub fn load(world_path: &PathBuf, x: i32, z: i32) -> std::io::Result<Self> {
+    pub fn load(world_path: &Path, x: i32, z: i32) -> std::io::Result<Self> {
         let (x_string, z_string) = (base36_from_u64(x as u64), base36_from_u64(z as u64));
         let (high_level, low_level) = (base36_from_u64(x as u64 % 64), base36_from_u64(z as u64 % 64));
         let file_name = format!("c.{x_string}.{z_string}.dat");
@@ -176,6 +176,38 @@ impl Chunk {
             block_light,
             sky_light,
             height_map,
+        })
+    }
+
+    /// Returns the BlockID at the coordinates specified or `None` if the index is out of bounds.
+    ///
+    /// # Arguments
+    ///
+    /// * `x`: chunk local x
+    /// * `y`: chunk local y
+    /// * `z`: chunk local z
+    ///
+    /// returns: Option<u8>
+    pub fn get_block(&self, x: u8, y: u8, z: u8) -> Option<u8> {
+        let index = (y as i32 + ( (z as i32) * 128 + ( (x as i32) * 128 * 16 ) )) as usize;
+        self.blocks.get(index).copied()
+    }
+
+    /// Overwrites the BlockID at the coordinates specified and returns the old BlockID or `None` if the index is out of bounds.
+    ///
+    /// # Arguments
+    ///
+    /// * `x`: chunk local x
+    /// * `y`: chunk local y
+    /// * `z`: chunk local z
+    ///
+    /// returns: Option<u8>
+    pub fn set_block(&mut self, x: u8, y: u8, z: u8, block_id: u8) -> Option<u8> {
+        let index = (y as i32 + ( (z as i32) * 128 + ( (x as i32) * 128 * 16 ) )) as usize;
+        self.blocks.get_mut(index).map(|v| {
+            let tmp = *v;
+            *v = block_id;
+            tmp
         })
     }
 

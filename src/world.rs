@@ -60,9 +60,9 @@ pub struct World {
 }
 
 impl World {
-    pub fn open(world_path: &Path) -> std::io::Result<Self> {
+    pub fn open<P: AsRef<Path>>(world_path: P) -> std::io::Result<Self> {
         let (seed, spawn, time, size_on_disk, last_played) = {
-            let mut file = std::fs::File::open(world_path.join("level.dat"))?;
+            let mut file = std::fs::File::open(world_path.as_ref().join("level.dat"))?;
             let blob = nbt::Blob::from_gzip_reader(&mut file)?;
 
             let seed = read_nbt_i64(&blob, "RandomSeed")? as u64;
@@ -75,7 +75,7 @@ impl World {
         };
 
         Ok(Self {
-            path: world_path.to_path_buf(),
+            path: world_path.as_ref().to_path_buf(),
             chunks: HashMap::with_capacity(u16::MAX as usize),
             seed,
             spawn,

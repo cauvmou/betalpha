@@ -113,5 +113,5 @@ pub fn string_to_bytes(string: String) -> Vec<u8> {
         (string.len() as u16).to_be_bytes().as_slice(),
         string.into_bytes().as_slice(),
     ]
-    .concat()
+        .concat()
 }

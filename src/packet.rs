@@ -9,9 +9,10 @@ use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
 use std::io::Cursor;
 use bytes::BytesMut;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
-use crate::packet;
-use crate::packet::util::{get_u8, SendPacket};
+use crate::BUFFER_SIZE;
+use crate::packet::util::get_u8;
 
 pub enum PacketError {
     NotEnoughBytes,

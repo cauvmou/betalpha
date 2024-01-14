@@ -26,7 +26,7 @@ fn implement_serialize_trait(attr: &syn::Expr, ast: &DeriveInput) -> TokenStream
         quote!(
             serializer.serialize_u8(#attr)?;
         )
-        .to_tokens(&mut body);
+            .to_tokens(&mut body);
         for (ident, ty) in fields {
             let line = match ty.to_string().as_str() {
                 "bool" => quote! {serializer.serialize_bool(self.#ident)?;},
@@ -88,43 +88,43 @@ fn implement_deserialize_trait(ast: &DeriveInput) -> TokenStream {
         for (ident, ty) in fields {
             let line = match ty.to_string().as_str() {
                 "bool" => {
-                    quote! {let (n, #ident): (usize, #ty) = crate::packet::parse::PacketDeserializer::deserialize_bool(cursor)?;}
+                    quote! {let #ident: #ty = crate::packet::parse::deserialize_bool(cursor)?;}
                 }
                 "u8" => {
-                    quote! {let (n, #ident): (usize, #ty) = crate::packet::parse::PacketDeserializer::deserialize_u8(cursor)?;}
+                    quote! {let #ident: #ty = crate::packet::parse::deserialize_u8(cursor)?;}
                 }
                 "u16" => {
-                    quote! {let (n, #ident): (usize, #ty) = crate::packet::parse::PacketDeserializer::deserialize_u16(cursor)?;}
+                    quote! {let #ident: #ty = crate::packet::parse::deserialize_u16(cursor)?;}
                 }
                 "u32" => {
-                    quote! {let (n, #ident): (usize, #ty) = crate::packet::parse::PacketDeserializer::deserialize_u32(cursor)?;}
+                    quote! {let #ident: #ty = crate::packet::parse::deserialize_u32(cursor)?;}
                 }
                 "u64" => {
-                    quote! {let (n, #ident): (usize, #ty) = crate::packet::parse::PacketDeserializer::deserialize_u64(cursor)?;}
+                    quote! {let #ident: #ty = crate::packet::parse::deserialize_u64(cursor)?;}
                 }
                 "f32" => {
-                    quote! {let (n, #ident): (usize, #ty) = crate::packet::parse::PacketDeserializer::deserialize_f32(cursor)?;}
+                    quote! {let #ident: #ty = crate::packet::parse::deserialize_f32(cursor)?;}
                 }
                 "f64" => {
-                    quote! {let (n, #ident): (usize, #ty) = crate::packet::parse::PacketDeserializer::deserialize_f64(cursor)?;}
+                    quote! {let #ident: #ty = crate::packet::parse::deserialize_f64(cursor)?;}
                 }
                 "i8" => {
-                    quote! {let (n, #ident): (usize, #ty) = crate::packet::parse::PacketDeserializer::deserialize_i8(cursor)?;}
+                    quote! {let #ident: #ty = crate::packet::parse::deserialize_i8(cursor)?;}
                 }
                 "i16" => {
-                    quote! {let (n, #ident): (usize, #ty) = crate::packet::parse::PacketDeserializer::deserialize_i16(cursor)?;}
+                    quote! {let #ident: #ty = crate::packet::parse::deserialize_i16(cursor)?;}
                 }
                 "i32" => {
-                    quote! {let (n, #ident): (usize, #ty) = crate::packet::parse::PacketDeserializer::deserialize_i32(cursor)?;}
+                    quote! {let #ident: #ty = crate::packet::parse::deserialize_i32(cursor)?;}
                 }
                 "i64" => {
-                    quote! {let (n, #ident): (usize, #ty) = crate::packet::parse::PacketDeserializer::deserialize_i64(cursor)?;}
+                    quote! {let #ident: #ty = crate::packet::parse::deserialize_i64(cursor)?;}
                 }
                 "Vec < u8 >" => {
-                    quote! {let (n, #ident): (usize, #ty) = crate::packet::parse::PacketDeserializer::deserialize_payload(cursor)?;}
+                    quote! {let #ident: #ty = crate::packet::parse::deserialize_payload(cursor)?;}
                 }
                 "String" => {
-                    quote! {let (n, #ident): (usize, #ty) = crate::packet::parse::PacketDeserializer::deserialize_string(cursor)?;}
+                    quote! {let #ident: #ty = crate::packet::parse::deserialize_string(cursor)?;}
                 }
                 _ => quote! {let #ident = #ty::nested_deserialize(cursor)?;},
             };

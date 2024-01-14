@@ -9,7 +9,7 @@ mod world;
 mod entity;
 mod packet;
 
-const BUFFER_SIZE: usize = 1024 * 8;
+pub(crate) const BUFFER_SIZE: usize = 1024 * 8;
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {

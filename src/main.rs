@@ -1,13 +1,14 @@
 use bevy_ecs::schedule::Schedule;
 use tokio::net::TcpListener;
 use crate::entity::{ClientStream, ConnectionState, PlayerBundle};
-use crate::entity::connection_state::Handshake;
+use crate::entity::connection_state::Login;
 use crate::world::World;
 
 mod util;
 mod world;
 mod entity;
 mod packet;
+mod byte_man;
 
 pub(crate) const BUFFER_SIZE: usize = 1024 * 8;
 
@@ -18,14 +19,14 @@ async fn main() -> std::io::Result<()> {
     let minecraft_world = World::open("./ExampleWorld")?;
 
     let mut ecs = bevy_ecs::world::World::new();
+    ecs.insert_resource(minecraft_world);
     ecs.add_schedule(Schedule::new(schedule::HandshakeLabel()));
-    ecs.register_system(system::handshake_system);
     ecs.register_system(system::login_system);
 
     loop {
         if let Ok((stream, addr)) = listener.accept().await {
             ecs.spawn(PlayerBundle {
-                stream: ClientStream::<Handshake>::new(stream),
+                stream: ClientStream::<Login>::new(stream),
                 position: Default::default(),
                 velocity: Default::default(),
                 look: Default::default(),
@@ -42,24 +43,18 @@ mod system {
     use tokio::io::AsyncReadExt;
     use crate::BUFFER_SIZE;
     use crate::entity::{ClientStream};
-    use crate::entity::connection_state::{Handshake, Login};
+    use crate::entity::connection_state;
+    use crate::packet::{HandshakePacket};
+    use crate::packet::{Deserialize, Serialize};
 
-    pub fn handshake_system(mut query: Query<(Entity, &ClientStream<Handshake>), With<ClientStream<Handshake>>>, mut commands: Commands) {
+    pub fn login_system(mut query: Query<(Entity, &ClientStream<connection_state::Login>), With<ClientStream<connection_state::Login>>>, mut commands: Commands) {
         for (entity, stream) in &mut query {
             {
                 let mut stream = stream.stream.write().unwrap();
                 let mut buf = BytesMut::with_capacity(BUFFER_SIZE);
                 pollster::block_on(stream.read_buf(&mut buf)).unwrap();
-
             }
-            commands.entity(entity).remove::<ClientStream<Handshake>>().insert(ClientStream::<Login>::from(stream.stream.clone()));
-        }
-    }
-
-    pub fn login_system(mut query: Query<(Entity, &ClientStream<Login>), With<ClientStream<Login>>>, mut commands: Commands) {
-        for (entity, stream) in &mut query {
-            let stream = &stream.stream;
-            commands.entity(entity).remove::<ClientStream<Handshake>>().insert(ClientStream::<Login>::from(stream.clone()));
+            commands.entity(entity).remove::<ClientStream<connection_state::Login>>().insert(ClientStream::<connection_state::Playing>::from(stream.stream.clone()));
         }
     }
 }

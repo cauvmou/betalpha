@@ -6,12 +6,13 @@ pub use parse::*;
 pub use types::*;
 
 use std::error::Error;
+use std::ffi::c_void;
 use std::fmt::{Debug, Display, Formatter};
 use std::io::Cursor;
 use bytes::BytesMut;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
-use crate::BUFFER_SIZE;
+use crate::{BUFFER_SIZE, packet};
 use crate::packet::util::get_u8;
 
 pub enum PacketError {

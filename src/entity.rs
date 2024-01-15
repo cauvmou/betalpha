@@ -32,10 +32,8 @@ pub struct Named {
 pub trait ConnectionState: Sized {}
 pub mod connection_state {
     use crate::entity::ConnectionState;
-    pub struct Handshake;
     pub struct Login;
     pub struct Playing;
-    impl ConnectionState for Handshake {}
     impl ConnectionState for Login {}
     impl ConnectionState for Playing {}
 }

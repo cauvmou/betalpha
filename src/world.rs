@@ -330,7 +330,3 @@ impl Chunk {
         (len as i32, compressed_bytes)
     }
 }
-
-pub struct PlayerInformation {
-
-}

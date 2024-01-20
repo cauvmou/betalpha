@@ -331,3 +331,6 @@ impl Chunk {
     }
 }
 
+pub struct PlayerInformation {
+
+}

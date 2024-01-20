@@ -217,7 +217,19 @@ mod system {
                     }
                 }
                 // TODO: Add spawn component to player.
-                // TODO: Send position and look information
+                // Send position and look information
+                // TODO: Load position and look information from player file.
+                let position_and_look_packet = to_client_packets::ServerPositionLookPacket {
+                    x: world.get_spawn()[0] as f64,
+                    stance: world.get_spawn()[1] as f64 + 1.75,
+                    y: world.get_spawn()[1] as f64,
+                    z: world.get_spawn()[2] as f64,
+                    yaw: 0.0,
+                    pitch: 0.0,
+                    on_ground: false,
+                };
+                stream.write_all(&position_and_look_packet.serialize().unwrap()).unwrap();
+                stream.flush().unwrap();
             }
             commands.entity(entity).remove::<ClientStream<connection_state::Initializing>>().insert(ClientStream::<connection_state::Playing>::from(stream.stream.clone()));
         }

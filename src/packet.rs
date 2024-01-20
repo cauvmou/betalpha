@@ -10,8 +10,6 @@ use std::ffi::c_void;
 use std::fmt::{Debug, Display, Formatter};
 use std::io::Cursor;
 use bytes::BytesMut;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpStream;
 use crate::{BUFFER_SIZE, packet};
 use crate::packet::util::get_u8;
 
@@ -44,7 +42,7 @@ impl Display for PacketError {
     }
 }
 
-mod ids {
+pub mod ids {
     pub const KEEP_ALIVE: u8 = 0x00;
     pub const LOGIN: u8 = 0x01;
     pub const HANDSHAKE: u8 = 0x02;

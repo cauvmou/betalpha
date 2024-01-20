@@ -1,8 +1,10 @@
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::marker::PhantomData;
+use std::net::TcpStream;
 use std::sync::{Arc, Mutex, RwLock};
-use bevy_ecs::prelude::{Bundle, Component};
-use tokio::net::TcpStream;
+use bevy::prelude::{Bundle, Component};
+use crate::world::Chunk;
 
 #[derive(Component, Default)]
 pub struct Position {
@@ -33,8 +35,10 @@ pub trait ConnectionState: Sized {}
 pub mod connection_state {
     use crate::entity::ConnectionState;
     pub struct Login;
+    pub struct Initializing;
     pub struct Playing;
     impl ConnectionState for Login {}
+    impl ConnectionState for Initializing {}
     impl ConnectionState for Playing {}
 }
 
@@ -60,11 +64,15 @@ impl<S: ConnectionState> ClientStream<S> {
     }
 }
 
+#[derive(Component)]
+pub struct PlayerChunkDB {
+    pub chunks: HashMap<u64, Arc<RwLock<Chunk>>>,
+}
+
 #[derive(Bundle)]
 pub struct PlayerBundle<S: ConnectionState + Sized + Send + Sync + 'static> {
     pub stream: ClientStream<S>,
     pub position: Position,
     pub velocity: Velocity,
     pub look: Look,
-    pub name: Named,
 }

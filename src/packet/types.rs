@@ -1,4 +1,4 @@
-mod to_client_packets {
+pub mod to_client_packets {
     use super::super::parse::PacketSerializer;
     use super::super::PacketError;
     use crate::packet::{
@@ -490,6 +490,3 @@ pub mod to_server_packets {
         pub reason: String,
     }
 }
-
-pub use to_client_packets::*;
-pub use to_server_packets::*;

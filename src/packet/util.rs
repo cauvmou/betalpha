@@ -1,7 +1,7 @@
 use crate::packet::PacketError;
 use bytes::Buf;
-use std::io::Cursor;
-use tokio::{io::AsyncWriteExt, net::TcpStream};
+use std::io::{Cursor, Write};
+use std::net::TcpStream;
 
 use super::Serialize;
 
@@ -14,11 +14,10 @@ impl<P: Serialize> SendPacket for P {
     async fn send(&self, stream: &mut TcpStream) -> Result<(), PacketError> {
         stream
             .write_all(&self.serialize()?)
-            .await
             .map_err(|e| PacketError::IOError(e))?;
 
         // consider not flushing
-        stream.flush().await.map_err(|e| PacketError::IOError(e))
+        stream.flush().map_err(|e| PacketError::IOError(e))
     }
 }
 

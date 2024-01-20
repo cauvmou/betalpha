@@ -5,6 +5,9 @@ pub fn lossy_u64_from_base36(input: &str) -> u64 {
 }
 
 pub fn base36_from_u64(mut input: u64) -> String {
+    if input == 0 {
+        return "0".to_string();
+    }
     let mut chars = Vec::new();
     while input > 0 {
         chars.push(BASE36_DIGITS[(input % 36) as usize]);
@@ -13,14 +16,28 @@ pub fn base36_from_u64(mut input: u64) -> String {
     String::from_iter(chars.iter().rev())
 }
 
+pub fn base36_from_i32(input: i32) -> String {
+    let lead = if input < 0 { "-" } else { "" };
+    let out = base36_from_u64(input.unsigned_abs() as u64);
+    format!("{lead}{out}")
+}
+
 #[test]
 fn test_lossy_u64_from_base36() {
     assert_eq!(lossy_u64_from_base36("ya"), 1234);
     assert_eq!(lossy_u64_from_base36("7cik2"), 12341234);
+    assert_eq!(lossy_u64_from_base36("0"), 0);
 }
 
 #[test]
 fn test_base36_from_u64() {
     assert_eq!(base36_from_u64(1234), "ya");
     assert_eq!(base36_from_u64(12341234), "7cik2");
+    assert_eq!(base36_from_u64(0), "0");
+}
+
+#[test]
+fn test_base36_from_i32() {
+    assert_eq!(base36_from_i32(-13), "-d");
+    assert_eq!(base36_from_i32(0), "0");
 }

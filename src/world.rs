@@ -3,8 +3,9 @@ use std::collections::{HashMap};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex, RwLock};
-use bevy_ecs::prelude::Resource;
-use crate::util::base36_from_u64;
+use bevy::prelude::Resource;
+use log::debug;
+use crate::util::{base36_from_i32, base36_from_u64};
 use crate::world::util::{read_nbt_bool, read_nbt_byte_array, read_nbt_i32, read_nbt_i64, read_value_bool, read_value_byte_array, read_value_i32, read_value_i64};
 
 mod util {
@@ -91,7 +92,7 @@ mod util {
 pub struct World {
     path: PathBuf,
     chunks: HashMap<u64, Arc<RwLock<Chunk>>>,
-    seed: u64,
+    seed: i64,
     spawn: [i32; 3],
     time: u64,
     size_on_disk: u64,
@@ -104,10 +105,10 @@ impl World {
             let mut file = std::fs::File::open(world_path.as_ref().join("level.dat"))?;
             let blob = nbt::Blob::from_gzip_reader(&mut file)?;
 
-            let data = blob.get("Level").unwrap();
+            let data = blob.get("Data").unwrap();
 
             if let nbt::Value::Compound(v) = data {
-                let seed = read_value_i64(v.get("RandomSeed").unwrap())? as u64;
+                let seed = read_value_i64(v.get("RandomSeed").unwrap())?;
                 let spawn = [
                     read_value_i32(v.get("SpawnX").unwrap())?,
                     read_value_i32(v.get("SpawnY").unwrap())?,
@@ -185,6 +186,15 @@ impl World {
             Err(std::io::Error::new(std::io::ErrorKind::NotFound, "Chunk is not loaded!"))
         }
     }
+
+    pub fn get_seed(&self) -> i64 {
+        self.seed
+    }
+
+    #[inline]
+    pub fn get_spawn(&self) -> [i32; 3] {
+        self.spawn
+    }
 }
 
 pub struct Chunk {
@@ -201,8 +211,8 @@ pub struct Chunk {
 
 impl Chunk {
     pub fn load(world_path: &Path, x: i32, z: i32) -> std::io::Result<Self> {
-        let (x_string, z_string) = (base36_from_u64(x as u64), base36_from_u64(z as u64));
-        let (high_level, low_level) = (base36_from_u64(x as u64 % 64), base36_from_u64(z as u64 % 64));
+        let (x_string, z_string) = (base36_from_i32(x), base36_from_i32(z));
+        let (high_level, low_level) = (base36_from_u64((((x as i8) as u8) % 64) as u64), base36_from_u64((((z as i8) as u8) % 64) as u64));
         let file_name = format!("c.{x_string}.{z_string}.dat");
         let file_path = world_path.join(high_level).join(low_level).join(file_name);
 
@@ -300,6 +310,24 @@ impl Chunk {
         }
 
         Ok(())
+    }
+
+    pub fn get_compressed_data(&self) -> (i32, Vec<u8>) {
+        let mut to_compress = self.blocks.clone();
+        to_compress.extend_from_slice(&self.data);
+        to_compress.extend_from_slice(&self.block_light);
+        to_compress.extend_from_slice(&self.sky_light);
+        let mut len = unsafe { libz_sys::compressBound(to_compress.len().try_into().unwrap()) };
+        let mut compressed_bytes = vec![0u8; len as usize];
+        unsafe {
+            libz_sys::compress(
+                compressed_bytes.as_mut_ptr(),
+                &mut len,
+                to_compress.as_ptr(),
+                to_compress.len().try_into().unwrap(),
+            );
+        }
+        (len as i32, compressed_bytes)
     }
 }
 

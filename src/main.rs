@@ -325,14 +325,14 @@ mod core {
                         x: world.get_spawn()[0] as f64,
                         y: world.get_spawn()[1] as f64,
                         z: world.get_spawn()[2] as f64,
-                        stance: world.get_spawn()[1] as f64 + 1.75,
+                        stance: world.get_spawn()[1] as f64 + 1.65,
                         on_ground: false,
                     },
                     PreviousPosition {
                         x: world.get_spawn()[0] as f64,
                         y: world.get_spawn()[1] as f64,
                         z: world.get_spawn()[2] as f64,
-                        stance: world.get_spawn()[1] as f64 + 1.75,
+                        stance: world.get_spawn()[1] as f64 + 1.65,
                         on_ground: false,
                     },
                     // Velocity {

@@ -382,7 +382,9 @@ pub fn unload_chunks(
             .copied()
             .collect::<Vec<_>>();
         for (x, z) in to_remove {
-            db.chunks.remove(&(x, z));
+            if db.chunks.remove(&(x, z)).is_some() {
+                let _ = world.unload_chunk(x, z);
+            }
             stream
                 .write_all(
                     &to_client_packets::PreChunkPacket { x, z, mode: false }

@@ -2,7 +2,7 @@ use std::net::TcpListener;
 use std::time::Instant;
 use bevy::prelude::{App, Resource, Schedule, Update};
 use log::{debug, info, Level};
-use crate::entity::{ClientStream, ConnectionState, PlayerBundle};
+use crate::entity::{ClientStream, PlayerBundle};
 use crate::entity::connection_state::Login;
 use crate::packet::to_server_packets;
 use crate::world::World;
@@ -19,18 +19,23 @@ pub(crate) const INITIAL_CHUNK_LOAD_SIZE: i32 = 12; // Diameter of chunks to sen
 
 
 fn main() -> std::io::Result<()> {
-    simple_logger::init_with_level(Level::Info).expect("Failed to initialize logging!");
+    simple_logger::init_with_level(Level::Debug).expect("Failed to initialize logging!");
     let listener = TcpListener::bind("0.0.0.0:25565")?;
     listener.set_nonblocking(true)?;
     App::new()
         .add_schedule(Schedule::new(schedule::ServerTickLabel()))
+        .add_event::<event::ChatMessageEvent>()
         .add_systems(Update, (
             system::accept_system,
             system::login_system,
-            system::initializing_system
+            system::initializing_system,
+            system::event_emitter_system,
         ))
         .add_systems(schedule::ServerTickLabel(),
-                     system::keep_alive_system,
+                     (
+                         system::keep_alive_system,
+                         system::chat_message_system
+                     ),
         )
         .insert_resource(World::open("./ExampleWorld")?)
         .insert_resource(TcpWrapper { listener })
@@ -55,17 +60,16 @@ struct TcpWrapper {
 
 mod system {
     use std::collections::HashMap;
-    use std::io::{BufReader, Cursor, Read, Write};
+    use std::io::{BufReader, Cursor, ErrorKind, Read, Write};
     use std::net::TcpStream;
     use std::sync::RwLockWriteGuard;
     use bevy::prelude::{Commands, Entity, EventReader, EventWriter, Query, Res, ResMut, With};
     use bytes::{Buf, BufMut, BytesMut};
     use log::{debug, error, info, warn};
-    use crate::{BUFFER_SIZE, packet, TcpWrapper};
+    use crate::{BUFFER_SIZE, event, packet, TcpWrapper};
     use crate::byte_man::{get_string, get_u8};
     use crate::entity::{ClientStream, Look, Named, PlayerBundle, PlayerChunkDB, Position, Velocity};
     use crate::entity::connection_state;
-    use crate::event::{IncomingConnectionEvent};
     use crate::packet::{ids, PacketError, to_client_packets, to_server_packets};
     use crate::packet::{Deserialize, Serialize};
     use crate::world::World;
@@ -76,15 +80,15 @@ mod system {
     ) {
         if let Ok((mut stream, addr)) = wrapper.listener.accept() {
             info!("Got new connection {}", stream.peer_addr().unwrap());
-            stream.set_nonblocking(false).unwrap();
+            stream.set_nonblocking(true).unwrap();
             // Create the player entity
-            commands.spawn(ClientStream::<connection_state::Login>::new(stream));
+            commands.spawn((ClientStream::new(stream), connection_state::Login));
         }
     }
 
     pub fn login_system(
         world: Res<World>,
-        mut query: Query<(Entity, &ClientStream<connection_state::Login>), With<ClientStream<connection_state::Login>>>,
+        mut query: Query<(Entity, &ClientStream), With<connection_state::Login>>,
         mut commands: Commands,
     ) {
         #[derive(PartialEq)]
@@ -108,7 +112,7 @@ mod system {
                                         to_server_packets::HandshakePacket::nested_deserialize(&mut cursor)?;
                                         stream.write_all(&to_client_packets::KeepAlive {}.serialize()?).unwrap();
                                         stream.flush().unwrap();
-                                    },
+                                    }
                                     ids::HANDSHAKE => {
                                         let name = to_server_packets::HandshakePacket::nested_deserialize(&mut cursor)?;
                                         debug!("Received handshake with name {:?}", name.connection_hash);
@@ -118,7 +122,7 @@ mod system {
                                         stream.write_all(&packet.serialize().unwrap()).unwrap();
                                         stream.flush().unwrap();
                                         debug!("Handshake accepted from address {:?} using username {name:?}", stream.peer_addr().unwrap())
-                                    },
+                                    }
                                     ids::LOGIN => {
                                         let request = to_server_packets::LoginRequestPacket::nested_deserialize(&mut cursor)?;
                                         commands.entity(entity).insert(Named { name: request.username.clone() });
@@ -134,7 +138,7 @@ mod system {
                                         stream.flush().unwrap();
                                         info!("Player \"{}\" joined the server!", request.username);
                                         *state = InternalState::LoggedIn;
-                                    },
+                                    }
                                     _ => {
                                         error!("Unhandled packet id: {packet_id}");
                                         return Err(PacketError::InvalidPacketID(packet_id));
@@ -146,8 +150,6 @@ mod system {
 
                         if let Ok(n) = handle_packets(&mut stream, &buf[buf_start..buf_end], entity, &world, &mut commands, &mut state) {
                             buf_start += n;
-                        } else {
-                            debug!("Retrying to handle packets...")
                         }
 
                         match stream.read(&mut buf[buf_end..]) {
@@ -157,7 +159,6 @@ mod system {
                             }
                             Ok(n) => {
                                 buf_end += n;
-
                             }
                             _ => {}
                         }
@@ -169,18 +170,18 @@ mod system {
                 });
             }
             // Transition state from `Login` to `Initializing`
-            commands.entity(entity).remove::<ClientStream<connection_state::Login>>().insert(ClientStream::<connection_state::Initializing>::from(stream.stream.clone()));
+            commands.entity(entity).remove::<connection_state::Login>().insert(connection_state::Initializing {});
         }
     }
 
     pub fn initializing_system(
         mut world: ResMut<World>,
-        mut query: Query<(Entity, &ClientStream<connection_state::Initializing>, &Named), (With<ClientStream<connection_state::Initializing>>, With<Named>)>,
+        mut query: Query<(Entity, &ClientStream, &Named), With<connection_state::Initializing>>,
         mut commands: Commands,
     ) {
         for (entity, stream, name_component) in &mut query {
             {
-                let mut stream = stream.stream.write().unwrap();
+                let mut stream: RwLockWriteGuard<'_, TcpStream> = stream.stream.write().unwrap();
                 // Send chunk data
                 let (player_chunk_x, player_chunk_z) = ((world.get_spawn()[0] - world.get_spawn()[0] % 16) / 16, (world.get_spawn()[2] - world.get_spawn()[2] % 16) / 16);
                 debug!("Player {} is in spawned in chunk: [{player_chunk_x}, {player_chunk_z}].", name_component.name);
@@ -242,8 +243,8 @@ mod system {
                 // TODO: Load position and look information from player file.
                 let position_and_look_packet = to_client_packets::ServerPositionLookPacket {
                     x: world.get_spawn()[0] as f64,
-                    stance: world.get_spawn()[1] as f64 + 1.75,
-                    y: world.get_spawn()[1] as f64,
+                    stance: world.get_spawn()[1] as f64 + 1.75 + 30.0,
+                    y: world.get_spawn()[1] as f64 + 30.0,
                     z: world.get_spawn()[2] as f64,
                     yaw: 0.0,
                     pitch: 0.0,
@@ -272,69 +273,135 @@ mod system {
             }
             // Transition state from `Initializing` to `Playing`
             info!("{} joined the world!", name_component.name);
-            commands.entity(entity).remove::<ClientStream<connection_state::Initializing>>().insert(ClientStream::<connection_state::Playing>::from(stream.stream.clone()));
+            commands.entity(entity).remove::<connection_state::Initializing>().insert(connection_state::Playing {});
         }
     }
 
-    pub fn keep_alive_system(mut query: Query<&ClientStream<connection_state::Playing>>) {
+    pub fn keep_alive_system(mut query: Query<&ClientStream, With<connection_state::Playing>>) {
         for stream in &mut query {
-            let mut stream = stream.stream.write().unwrap();
+            let mut stream: RwLockWriteGuard<'_, TcpStream> = stream.stream.write().unwrap();
             stream.write_all(&[0x00]).unwrap();
             stream.flush().unwrap();
         }
     }
 
-    //pub fn parse_packet_system<T>(
-    //    mut ev_emmit_packet: EventWriter<RecvPacketEvent<T>>,
-    //    mut query: Query<(Entity, &ClientStream<connection_state::Playing>), With<ClientStream<connection_state::Playing>>>,
-    //) where T: Serialize + Deserialize + Send + Sync + 'static {
-    //    for (entity, stream) in &mut query {
-    //        let mut stream = stream.stream.write().unwrap();
-    //        let mut buf = [0u8; BUFFER_SIZE];
-    //        let mut buf_position = 0usize;
-    //        pollster::block_on(async {
-    //            loop {
-    //                // TODO: Jesus...
-    //                fn handle_packets<'w, 's, T>(stream: &mut TcpStream, buf: &[u8], entity: Entity, ev_emmit_packet: &mut EventWriter<RecvPacketEvent<T>>) -> Result<usize, PacketError> where T: Serialize + Deserialize + Send + Sync + 'static {
-    //                    let mut cursor = Cursor::new(&buf[..]);
-    //                    if let Ok(packet_id) = get_u8(&mut cursor) {
-    //                        match packet_id {
-    //                            ids::CHAT_MESSAGE => {
-    //                                let packet to_server_packets::ChatMessagePacket::nested_deserialize(&mut cursor)?;
-    //                                ev_emmit_packet.send(RecvPacketEvent { data: Box::new(packet) })
-    //                            }
-    //                            _ => {
-    //                                error!("Client send invalid packet ID: {packet_id}");
-    //                                return Err(PacketError::InvalidPacketID(packet_id));
-    //                            }
-    //                        }
-    //                        Ok(cursor.position() as usize)
-    //                    } else {
-    //                        Err(PacketError::NotEnoughBytes)
-    //                    }
-//
-    //                }
-//
-    //                if let Ok(n) = handle_packets(&mut stream, &buf[buf_position..], entity) {
-    //                    debug!("Advancing buffer {n} bytes...");
-    //                    buf_position += n;
-    //                } else {
-    //                    debug!("Retrying to handle packets...")
-    //                }
-//
-    //                if stream.read(&mut buf).unwrap() == 0 {
-    //                    debug!("Read zero bytes...");
-    //                    break;
-    //                }
-    //            }
-    //        });
-    //    }
-    //}
 
     pub fn tick_system(
-        mut query: Query<(Entity, &ClientStream<connection_state::Playing>), With<ClientStream<connection_state::Playing>>>
+        mut query: Query<(Entity, &ClientStream), With<connection_state::Playing>>
     ) {
         for (entity, stream) in &mut query {}
+    }
+
+    pub fn chat_message_system(
+        mut chat_message_event_collector: EventReader<event::ChatMessageEvent>,
+        mut query: Query<&ClientStream, With<connection_state::Playing>>,
+    ) {
+        let messages = chat_message_event_collector.read().collect::<Vec<_>>();
+        for stream in &mut query {
+            {
+                let mut stream: RwLockWriteGuard<'_, TcpStream> = stream.stream.write().unwrap();
+                messages.iter().for_each(|m| {
+                    let packet = to_client_packets::ChatMessagePacket { message: format!("<{}> {}", m.from, m.message) };
+                    stream.write_all(&packet.serialize().unwrap()).unwrap();
+                });
+                stream.flush().unwrap();
+            }
+        }
+    }
+
+    // This is the dirty part no one wants to talk about.
+    pub fn event_emitter_system(
+        mut chat_message_event_emitter: EventWriter<event::ChatMessageEvent>,
+        mut query: Query<(Entity, &ClientStream, &Named), (With<connection_state::Playing>)>,
+        mut commands: Commands,
+    ) {
+        for (entity, stream_component, name_component) in &mut query {
+            let mut stream: RwLockWriteGuard<'_, TcpStream> = stream_component.stream.write().unwrap();
+            // This buffer has to be persistent between read cycles, because we cannot read the exact number of bytes we need.
+            let mut buf = [0u8; BUFFER_SIZE];
+            let mut left_over: RwLockWriteGuard<'_, Vec<u8>> = stream_component.left_over.write().unwrap();
+            unsafe { std::ptr::copy_nonoverlapping(left_over.as_ptr(), buf.as_mut_ptr(), left_over.len()) }
+            let (mut buf_start, mut buf_end) = (0usize, left_over.len());
+            loop {
+                let res: Result<usize, PacketError> = (|| -> Result<usize, PacketError> {
+                    let mut cursor = Cursor::new(&buf[buf_start..buf_end]);
+                    // Handle all packets...
+                    if let Ok(packet_id) = get_u8(&mut cursor) {
+                        match packet_id {
+                            ids::KEEP_ALIVE => {
+                                to_server_packets::HandshakePacket::nested_deserialize(&mut cursor)?;
+                            }
+                            ids::LOGIN => {
+                                let packet = to_server_packets::LoginRequestPacket::nested_deserialize(&mut cursor)?;
+                                debug!("{packet:?}")
+                            }
+                            ids::CHAT_MESSAGE => {
+                                let packet = to_server_packets::ChatMessagePacket::nested_deserialize(&mut cursor)?;
+                                chat_message_event_emitter.send(event::ChatMessageEvent { from: name_component.name.clone(), message: packet.message });
+                            }
+                            ids::PLAYER_POSITION_AND_LOOK => {
+                                let packet = to_server_packets::PlayerPositionLookPacket::nested_deserialize(&mut cursor)?;
+                            }
+                            ids::PLAYER => {
+                                let packet = to_server_packets::PlayerPacket::nested_deserialize(&mut cursor)?;
+                            }
+                            ids::PLAYER_POSITION => {
+                                let packet = to_server_packets::PlayerPositionPacket::nested_deserialize(&mut cursor)?;
+                            }
+                            ids::PLAYER_LOOK => {
+                                let packet = to_server_packets::PlayerLookPacket::nested_deserialize(&mut cursor)?;
+                            }
+                            ids::ANIMATION => {
+                                let packet = to_server_packets::ArmAnimationPacket::nested_deserialize(&mut cursor)?;
+                            }
+                            ids::KICK_OR_DISCONNECT => {
+                                let packet = to_server_packets::DisconnectPacket::nested_deserialize(&mut cursor)?;
+                                info!("{} left the world: {}", name_component.name, packet.reason);
+                                commands.entity(entity).remove::<ClientStream>().remove::<connection_state::Playing>().insert(connection_state::Disconnecting {});
+                            }
+                            _ => {
+                                error!("Unhandled packet id: {packet_id}");
+                                return Err(PacketError::InvalidPacketID(packet_id));
+                            }
+                        }
+                        Ok(cursor.position() as usize)
+                    } else {
+                        Err(PacketError::NotEnoughBytes)
+                    }
+                })();
+
+                if let Ok(n) = res {
+                    buf_start += n;
+                    left_over.clear();
+                    left_over.append(&mut buf[buf_start..buf_end].to_vec());
+                    break;
+                }
+
+                match stream.read(&mut buf[buf_end..]) {
+                    Ok(0) => {
+                        debug!("Read zero bytes...");
+                        left_over.clear();
+                        left_over.append(&mut buf[buf_start..buf_end].to_vec());
+                        break;
+                    }
+                    Ok(n) => {
+                        buf_end += n;
+                    }
+                    Err(err) => match err.kind() {
+                        ErrorKind::ConnectionRefused | ErrorKind::ConnectionReset | ErrorKind::BrokenPipe | ErrorKind::TimedOut => {
+                            // Transition state from `Playing` to `Disconnecting`
+                            info!("{} left the world!", name_component.name);
+                            commands.entity(entity).remove::<ClientStream>().remove::<connection_state::Playing>().insert(connection_state::Disconnecting {});
+                            break;
+                        }
+                        _ => {
+                            // error!("{err}");
+                            // break;
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 

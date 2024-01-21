@@ -4,6 +4,7 @@ use std::marker::PhantomData;
 use std::net::TcpStream;
 use std::sync::{Arc, Mutex, RwLock};
 use bevy::prelude::{Bundle, Component};
+use crate::BUFFER_SIZE;
 use crate::world::Chunk;
 
 #[derive(Component, Default)]
@@ -33,37 +34,37 @@ pub struct Named {
     pub name: String
 }
 
-pub trait ConnectionState: Sized {}
 pub mod connection_state {
-    use crate::entity::ConnectionState;
+    use bevy::prelude::Component;
+
+    #[derive(Component)]
     pub struct Login;
+    #[derive(Component)]
     pub struct Initializing;
+    #[derive(Component)]
     pub struct Playing;
-    pub struct Disconnecting;
-    impl ConnectionState for Login {}
-    impl ConnectionState for Initializing {}
-    impl ConnectionState for Playing {}
-    impl ConnectionState for Disconnecting {}
+    #[derive(Component)]
+    pub struct Disconnecting {}
 }
 
 #[derive(Component)]
-pub struct ClientStream<S: ConnectionState> {
+pub struct ClientStream {
     pub stream: Arc<RwLock<TcpStream>>,
-    _ty: PhantomData<S>
+    pub left_over: Arc<RwLock<Vec<u8>>>
 }
 
-impl<S: ConnectionState> ClientStream<S> {
+impl ClientStream {
     pub fn new(stream: TcpStream) -> Self {
         Self {
             stream: Arc::new(RwLock::new(stream)),
-            _ty: Default::default(),
+            left_over: Arc::new(RwLock::new(Vec::with_capacity(BUFFER_SIZE))),
         }
     }
 
     pub fn from(stream: Arc<RwLock<TcpStream>>) -> Self {
         Self {
             stream,
-            _ty: Default::default(),
+            left_over: Arc::new(RwLock::new(Vec::with_capacity(BUFFER_SIZE))),
         }
     }
 }
@@ -74,8 +75,8 @@ pub struct PlayerChunkDB {
 }
 
 #[derive(Bundle)]
-pub struct PlayerBundle<S: ConnectionState + Sized + Send + Sync + 'static> {
-    pub stream: ClientStream<S>,
+pub struct PlayerBundle {
+    pub stream: ClientStream,
     pub position: Position,
     pub velocity: Velocity,
     pub look: Look,

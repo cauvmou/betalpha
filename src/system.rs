@@ -1,4 +1,4 @@
-use crate::entity::connection_state;
+use crate::entity::{connection_state, PreviousPosition};
 use crate::entity::{
     ClientStream, Look, Named, PlayerBundle, PlayerChunkDB, PlayerEntityDB, Position, Velocity,
 };
@@ -155,10 +155,13 @@ pub fn calculate_visible_players(
 
 pub fn player_movement(
     mut event_collector: EventReader<event::PlayerPositionAndLookEvent>,
-    mut query: Query<(Entity, &mut Position, &mut Look), With<connection_state::Playing>>,
+    mut query: Query<
+        (Entity, &mut Position, &mut PreviousPosition, &mut Look),
+        With<connection_state::Playing>,
+    >,
 ) {
     let events = event_collector.read().collect::<Vec<_>>();
-    for (entity, mut position, mut look) in &mut query {
+    for (entity, mut position, mut prev, mut look) in &mut query {
         for event in events.clone() {
             match event {
                 PlayerPositionAndLookEvent::PositionAndLook {
@@ -171,6 +174,10 @@ pub fn player_movement(
                     pitch,
                 } => {
                     if entity.index() == *entity_id {
+                        prev.x = position.x;
+                        prev.y = position.y;
+                        prev.z = position.z;
+                        prev.stance = position.stance;
                         position.x = *x;
                         position.y = *y;
                         position.z = *z;
@@ -187,6 +194,10 @@ pub fn player_movement(
                     stance,
                 } => {
                     if entity.index() == *entity_id {
+                        prev.x = position.x;
+                        prev.y = position.y;
+                        prev.z = position.z;
+                        prev.stance = position.stance;
                         position.x = *x;
                         position.y = *y;
                         position.z = *z;
@@ -204,6 +215,78 @@ pub fn player_movement(
                     }
                 }
             }
+        }
+    }
+}
+
+pub fn move_player(
+    (mut query, mut other): (
+        Query<(Entity, &ClientStream), With<connection_state::Playing>>,
+        Query<(Entity, &Position, &PreviousPosition, &Look), With<connection_state::Playing>>,
+    ),
+) {
+    for (entity, stream_component) in &mut query {
+        let mut stream: RwLockWriteGuard<'_, TcpStream> = stream_component.stream.write().unwrap();
+        for (other, position, prev_position, look) in &mut other {
+            if entity.index() == other.index() {
+                continue;
+            }
+
+            let (yaw, pitch) = crate::util::pack_float_pair(look.yaw, look.pitch);
+            if prev_position.distance_moved(&position) < 4.0 {
+                let (x, y, z) = prev_position.relative_movement(&position);
+                let packet = to_client_packets::EntityLookRelativeMovePacket {
+                    entity_id: other.index(),
+                    x,
+                    y,
+                    z,
+                    yaw,
+                    pitch,
+                };
+                stream.write_all(&packet.serialize().unwrap()).unwrap();
+            } else {
+                let packet = to_client_packets::EntityTeleportPacket {
+                    entity_id: other.index(),
+                    x: (position.x * 32.0).round() as i32,
+                    y: (position.y * 32.0).round() as i32,
+                    z: (position.z * 32.0).round() as i32,
+                    yaw,
+                    pitch,
+                };
+                stream.write_all(&packet.serialize().unwrap()).unwrap();
+            }
+
+            stream.flush().unwrap();
+        }
+    }
+}
+
+pub fn correct_player_position(
+    (mut query, mut other): (
+        Query<(Entity, &ClientStream), With<connection_state::Playing>>,
+        Query<(Entity, &Position, &Look), With<connection_state::Playing>>,
+    ),
+) {
+    for (entity, stream_component) in &mut query {
+        let mut stream: RwLockWriteGuard<'_, TcpStream> = stream_component.stream.write().unwrap();
+        for (other, position, look) in &mut other {
+            if entity.index() == other.index() {
+                continue;
+            }
+
+            let (yaw, pitch) = crate::util::pack_float_pair(look.yaw, look.pitch);
+
+            let packet = to_client_packets::EntityTeleportPacket {
+                entity_id: other.index(),
+                x: (position.x * 32.0).round() as i32,
+                y: (position.y * 32.0).round() as i32,
+                z: (position.z * 32.0).round() as i32,
+                yaw,
+                pitch,
+            };
+            stream.write_all(&packet.serialize().unwrap()).unwrap();
+
+            stream.flush().unwrap();
         }
     }
 }

@@ -33,6 +33,11 @@ fn main() -> std::io::Result<()> {
                 core::login_system,
                 core::initializing_system,
                 core::event_emitter_system,
+                system::calculate_visible_players,
+                system::load_chunks,
+                system::unload_chunks,
+                system::player_movement,
+                system::move_player,
             ),
         )
         .add_systems(
@@ -41,10 +46,7 @@ fn main() -> std::io::Result<()> {
                 system::keep_alive,
                 system::chat_message,
                 system::disconnecting,
-                system::calculate_visible_players,
-                system::load_chunks,
-                system::unload_chunks,
-                system::player_movement,
+                system::correct_player_position,
             ),
         )
         .insert_resource(World::open("./ExampleWorld")?)
@@ -70,9 +72,10 @@ struct TcpWrapper {
 
 mod core {
     use crate::byte_man::{get_string, get_u8};
-    use crate::entity::connection_state;
+    use crate::entity::{connection_state, Position};
     use crate::entity::{
-        ClientStream, Look, Named, PlayerBundle, PlayerChunkDB, PlayerEntityDB, Position, Velocity,
+        ClientStream, Look, Named, PlayerBundle, PlayerChunkDB, PlayerEntityDB, PreviousPosition,
+        Velocity,
     };
     use crate::event::PlayerPositionAndLookEvent;
     use crate::packet::{ids, to_client_packets, to_server_packets, PacketError};
@@ -217,6 +220,7 @@ mod core {
         }
     }
 
+    // TODO: Parse spawn position as absolute integer.
     pub fn initializing_system(
         mut world: ResMut<World>,
         mut query: Query<(Entity, &ClientStream, &Named), With<connection_state::Initializing>>,
@@ -305,8 +309,8 @@ mod core {
                 // TODO: Load position and look information from player file.
                 let position_and_look_packet = to_client_packets::ServerPositionLookPacket {
                     x: world.get_spawn()[0] as f64,
-                    stance: world.get_spawn()[1] as f64 + 1.75 + 4.0,
-                    y: world.get_spawn()[1] as f64 + 4.0,
+                    stance: world.get_spawn()[1] as f64 + 1.75,
+                    y: world.get_spawn()[1] as f64,
                     z: world.get_spawn()[2] as f64,
                     yaw: 0.0,
                     pitch: 0.0,
@@ -319,9 +323,16 @@ mod core {
                 commands.entity(entity).insert((
                     Position {
                         x: world.get_spawn()[0] as f64,
-                        y: world.get_spawn()[1] as f64 + 4.0,
+                        y: world.get_spawn()[1] as f64,
                         z: world.get_spawn()[2] as f64,
-                        stance: world.get_spawn()[1] as f64 + 1.75 + 4.0,
+                        stance: world.get_spawn()[1] as f64 + 1.75,
+                        on_ground: false,
+                    },
+                    PreviousPosition {
+                        x: world.get_spawn()[0] as f64,
+                        y: world.get_spawn()[1] as f64,
+                        z: world.get_spawn()[2] as f64,
+                        stance: world.get_spawn()[1] as f64 + 1.75,
                         on_ground: false,
                     },
                     // Velocity {

@@ -17,6 +17,29 @@ pub struct Position {
 }
 
 #[derive(Component, Default)]
+pub struct PreviousPosition {
+    pub x: f64,
+    pub y: f64,
+    pub z: f64,
+    pub stance: f64,
+    pub on_ground: bool,
+}
+
+impl PreviousPosition {
+    pub fn distance_moved(&self, pos: &Position) -> f64 {
+        let (x, y, z) = (pos.x - self.x, pos.y - self.y, pos.z - self.z);
+        (x * x + y * y + z * z).sqrt()
+    }
+
+    pub fn relative_movement(&self, pos: &Position) -> (i8, i8, i8) {
+        let x = ((pos.x - self.x) * 32.0).round() as i8;
+        let y = ((pos.y - self.y) * 32.0).round() as i8;
+        let z = ((pos.z - self.z) * 32.0).round() as i8;
+        (x, y, z)
+    }
+}
+
+#[derive(Component, Default)]
 pub struct Velocity {
     pub x: f64,
     pub y: f64,
@@ -84,7 +107,7 @@ pub struct PlayerEntityDB {
 #[derive(Bundle)]
 pub struct PlayerBundle {
     pub stream: ClientStream,
-    pub position: Position,
+    pub position: PreviousPosition,
     pub velocity: Velocity,
     pub look: Look,
 }

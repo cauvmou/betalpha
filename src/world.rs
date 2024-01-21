@@ -1,35 +1,56 @@
+use crate::util::{base36_from_i32, base36_from_u64};
+use crate::world::util::{
+    read_nbt_bool, read_nbt_byte_array, read_nbt_i32, read_nbt_i64, read_value_bool,
+    read_value_byte_array, read_value_i32, read_value_i64,
+};
+use bevy::prelude::Resource;
+use log::debug;
 use std::cell::RefCell;
-use std::collections::{HashMap};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex, RwLock};
-use bevy::prelude::Resource;
-use log::debug;
-use crate::util::{base36_from_i32, base36_from_u64};
-use crate::world::util::{read_nbt_bool, read_nbt_byte_array, read_nbt_i32, read_nbt_i64, read_value_bool, read_value_byte_array, read_value_i32, read_value_i64};
 
 mod util {
     pub fn read_nbt_i64(blob: &nbt::Blob, name: &'static str) -> std::io::Result<i64> {
-        if let nbt::Value::Long(v) = blob.get(name).ok_or(std::io::Error::new(std::io::ErrorKind::NotFound, "Field does not exist!"))? {
+        if let nbt::Value::Long(v) = blob.get(name).ok_or(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "Field does not exist!",
+        ))? {
             return Ok(*v);
         } else {
-            Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "Field has wrong type!"))
+            Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "Field has wrong type!",
+            ))
         }
     }
 
     pub fn read_nbt_i32(blob: &nbt::Blob, name: &'static str) -> std::io::Result<i32> {
-        if let nbt::Value::Int(v) = blob.get(name).ok_or(std::io::Error::new(std::io::ErrorKind::NotFound, "Field does not exist!"))? {
+        if let nbt::Value::Int(v) = blob.get(name).ok_or(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "Field does not exist!",
+        ))? {
             return Ok(*v);
         } else {
-            Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "Field has wrong type!"))
+            Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "Field has wrong type!",
+            ))
         }
     }
 
     pub fn read_nbt_byte(blob: &nbt::Blob, name: &'static str) -> std::io::Result<i8> {
-        if let nbt::Value::Byte(v) = blob.get(name).ok_or(std::io::Error::new(std::io::ErrorKind::NotFound, "Field does not exist!"))? {
+        if let nbt::Value::Byte(v) = blob.get(name).ok_or(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "Field does not exist!",
+        ))? {
             return Ok(*v);
         } else {
-            Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "Field has wrong type!"))
+            Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "Field has wrong type!",
+            ))
         }
     }
 
@@ -38,13 +59,19 @@ mod util {
     }
 
     pub fn read_nbt_byte_array(blob: &nbt::Blob, name: &'static str) -> std::io::Result<Vec<u8>> {
-        if let nbt::Value::ByteArray(v) = blob.get(name).ok_or(std::io::Error::new(std::io::ErrorKind::NotFound, "Field does not exist!"))? {
+        if let nbt::Value::ByteArray(v) = blob.get(name).ok_or(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "Field does not exist!",
+        ))? {
             return Ok(unsafe {
                 let slice = std::ptr::slice_from_raw_parts(v.as_ptr() as *const u8, v.len());
                 Vec::from(slice.as_ref().unwrap())
             });
         } else {
-            Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "Field has wrong type!"))
+            Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "Field has wrong type!",
+            ))
         }
     }
 
@@ -52,7 +79,10 @@ mod util {
         if let nbt::Value::Long(v) = value {
             return Ok(*v);
         } else {
-            Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "Field has wrong type!"))
+            Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "Field has wrong type!",
+            ))
         }
     }
 
@@ -60,7 +90,10 @@ mod util {
         if let nbt::Value::Int(v) = value {
             return Ok(*v);
         } else {
-            Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "Field has wrong type!"))
+            Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "Field has wrong type!",
+            ))
         }
     }
 
@@ -68,7 +101,10 @@ mod util {
         if let nbt::Value::Byte(v) = value {
             return Ok(*v);
         } else {
-            Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "Field has wrong type!"))
+            Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "Field has wrong type!",
+            ))
         }
     }
 
@@ -83,7 +119,10 @@ mod util {
                 Vec::from(slice.as_ref().unwrap())
             });
         } else {
-            Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "Field has wrong type!"))
+            Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "Field has wrong type!",
+            ))
         }
     }
 }
@@ -91,7 +130,7 @@ mod util {
 #[derive(Resource)]
 pub struct World {
     path: PathBuf,
-    chunks: HashMap<u64, Arc<RwLock<Chunk>>>,
+    chunks: HashMap<(i32, i32), Arc<RwLock<Chunk>>>,
     seed: i64,
     spawn: [i32; 3],
     time: u64,
@@ -112,14 +151,17 @@ impl World {
                 let spawn = [
                     read_value_i32(v.get("SpawnX").unwrap())?,
                     read_value_i32(v.get("SpawnY").unwrap())?,
-                    read_value_i32(v.get("SpawnZ").unwrap())?
+                    read_value_i32(v.get("SpawnZ").unwrap())?,
                 ];
                 let time = read_value_i64(v.get("Time").unwrap())? as u64;
                 let size_on_disk = read_value_i64(v.get("SizeOnDisk").unwrap())? as u64;
                 let last_player = read_value_i64(v.get("LastPlayed").unwrap())? as u64;
                 (seed, spawn, time, size_on_disk, last_player)
             } else {
-                return Err(std::io::Error::new(std::io::ErrorKind::NotFound, "Did not find Level field in chunk!"))
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    "Did not find Level field in chunk!",
+                ));
             }
         };
 
@@ -142,9 +184,13 @@ impl World {
         compund.insert("SpawnY".to_string(), nbt::Value::Int(self.spawn[1]));
         compund.insert("SpawnZ".to_string(), nbt::Value::Int(self.spawn[2]));
         compund.insert("Time".to_string(), nbt::Value::Long(self.time as i64));
-        let size = fs_extra::dir::get_size(self.path).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+        let size = fs_extra::dir::get_size(self.path)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
         compund.insert("SizeOnDisk".to_string(), nbt::Value::Long(size as i64));
-        compund.insert("LastPlayed".to_string(), nbt::Value::Long(std::time::UNIX_EPOCH.elapsed().unwrap().as_secs() as i64));
+        compund.insert(
+            "LastPlayed".to_string(),
+            nbt::Value::Long(std::time::UNIX_EPOCH.elapsed().unwrap().as_secs() as i64),
+        );
 
         let mut blob = nbt::Blob::new();
         blob.insert("Data", nbt::Value::Compound(compund))?;
@@ -156,13 +202,16 @@ impl World {
     ///
     /// returns: Result<Rc<RefCell<Chunk>, Global>, Error>
     pub fn get_chunk(&mut self, x: i32, z: i32) -> std::io::Result<Arc<RwLock<Chunk>>> {
-        let key = (x as u64) << 4 | z as u64;
+        let key = (x, z);
         if let Some(chunk) = self.chunks.get(&key) {
             Ok(chunk.clone())
         } else {
             let chunk = Chunk::load(&self.path, x, z)?;
             self.chunks.insert(key, Arc::new(RwLock::new(chunk)));
-            self.chunks.get(&key).cloned().ok_or(std::io::Error::new(std::io::ErrorKind::InvalidInput, "Chunk is not loaded!"))
+            self.chunks.get(&key).cloned().ok_or(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "Chunk is not loaded!",
+            ))
         }
     }
 
@@ -172,18 +221,24 @@ impl World {
     ///
     /// returns: Result<(), Error>
     pub fn unload_chunk(&mut self, x: i32, z: i32) -> std::io::Result<()> {
-        let key = (x as u64) << 4 | (z as u64);
+        let key = (x, z);
 
         if let Some(chunk) = self.chunks.remove(&key) {
             match chunk.try_write() {
-                Ok(mut chunk) => { chunk.save(&self.path) }
+                Ok(mut chunk) => chunk.save(&self.path),
                 Err(e) => {
                     self.chunks.insert(key, chunk.clone());
-                    Err(std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))
+                    Err(std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        e.to_string(),
+                    ))
                 }
             }
         } else {
-            Err(std::io::Error::new(std::io::ErrorKind::NotFound, "Chunk is not loaded!"))
+            Err(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "Chunk is not loaded!",
+            ))
         }
     }
 
@@ -212,7 +267,10 @@ pub struct Chunk {
 impl Chunk {
     pub fn load(world_path: &Path, x: i32, z: i32) -> std::io::Result<Self> {
         let (x_string, z_string) = (base36_from_i32(x), base36_from_i32(z));
-        let (high_level, low_level) = (base36_from_u64((((x as i8) as u8) % 64) as u64), base36_from_u64((((z as i8) as u8) % 64) as u64));
+        let (high_level, low_level) = (
+            base36_from_u64((((x as i8) as u8) % 64) as u64),
+            base36_from_u64((((z as i8) as u8) % 64) as u64),
+        );
         let file_name = format!("c.{x_string}.{z_string}.dat");
         let file_path = world_path.join(high_level).join(low_level).join(file_name);
 
@@ -229,9 +287,20 @@ impl Chunk {
                 let block_light = read_value_byte_array(v.get("BlockLight").unwrap())?;
                 let sky_light = read_value_byte_array(v.get("SkyLight").unwrap())?;
                 let height_map = read_value_byte_array(v.get("HeightMap").unwrap())?;
-                (terrain_populated, last_update, blocks, data, block_light, sky_light, height_map)
+                (
+                    terrain_populated,
+                    last_update,
+                    blocks,
+                    data,
+                    block_light,
+                    sky_light,
+                    height_map,
+                )
             } else {
-                return Err(std::io::Error::new(std::io::ErrorKind::NotFound, "Did not find Level field in chunk!"))
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    "Did not find Level field in chunk!",
+                ));
             }
         };
 
@@ -258,7 +327,7 @@ impl Chunk {
     ///
     /// returns: Option<u8>
     pub fn get_block(&self, x: u8, y: u8, z: u8) -> Option<u8> {
-        let index = (y as i32 + ( (z as i32) * 128 + ( (x as i32) * 128 * 16 ) )) as usize;
+        let index = (y as i32 + ((z as i32) * 128 + ((x as i32) * 128 * 16))) as usize;
         self.blocks.get(index).copied()
     }
 
@@ -272,7 +341,7 @@ impl Chunk {
     ///
     /// returns: Option<u8>
     pub fn set_block(&mut self, x: u8, y: u8, z: u8, block_id: u8) -> Option<u8> {
-        let index = (y as i32 + ( (z as i32) * 128 + ( (x as i32) * 128 * 16 ) )) as usize;
+        let index = (y as i32 + ((z as i32) * 128 + ((x as i32) * 128 * 16))) as usize;
         self.blocks.get_mut(index).map(|v| {
             let tmp = *v;
             *v = block_id;
@@ -282,7 +351,10 @@ impl Chunk {
 
     pub fn save(&mut self, world_path: &Path) -> std::io::Result<()> {
         let (x_string, z_string) = (self.chunk_x, self.chunk_z);
-        let (high_level, low_level) = (base36_from_u64(self.chunk_x as u64 % 64), base36_from_u64(self.chunk_z as u64 % 64));
+        let (high_level, low_level) = (
+            base36_from_u64(self.chunk_x as u64 % 64),
+            base36_from_u64(self.chunk_z as u64 % 64),
+        );
         let file_name = format!("c.{x_string}.{z_string}.dat");
         let file_path = world_path.join(high_level).join(low_level).join(file_name);
 
@@ -296,13 +368,34 @@ impl Chunk {
 
             let mut file = std::fs::File::open(file_path)?;
             let mut compund = HashMap::with_capacity(7);
-            compund.insert("TerrainPopulated".to_string(), nbt::Value::Byte(self.terrain_populated as i8));
-            compund.insert("LastUpdate".to_string(), nbt::Value::Long(self.last_update as i64));
-            compund.insert("Blocks".to_string(), nbt::Value::ByteArray(vu8_vi8(&self.blocks)));
-            compund.insert("Data".to_string(), nbt::Value::ByteArray(vu8_vi8(&self.data)));
-            compund.insert("BlockLight".to_string(), nbt::Value::ByteArray(vu8_vi8(&self.block_light)));
-            compund.insert("SkyLight".to_string(), nbt::Value::ByteArray(vu8_vi8(&self.sky_light)));
-            compund.insert("HeightMap".to_string(), nbt::Value::ByteArray(vu8_vi8(&self.height_map)));
+            compund.insert(
+                "TerrainPopulated".to_string(),
+                nbt::Value::Byte(self.terrain_populated as i8),
+            );
+            compund.insert(
+                "LastUpdate".to_string(),
+                nbt::Value::Long(self.last_update as i64),
+            );
+            compund.insert(
+                "Blocks".to_string(),
+                nbt::Value::ByteArray(vu8_vi8(&self.blocks)),
+            );
+            compund.insert(
+                "Data".to_string(),
+                nbt::Value::ByteArray(vu8_vi8(&self.data)),
+            );
+            compund.insert(
+                "BlockLight".to_string(),
+                nbt::Value::ByteArray(vu8_vi8(&self.block_light)),
+            );
+            compund.insert(
+                "SkyLight".to_string(),
+                nbt::Value::ByteArray(vu8_vi8(&self.sky_light)),
+            );
+            compund.insert(
+                "HeightMap".to_string(),
+                nbt::Value::ByteArray(vu8_vi8(&self.height_map)),
+            );
 
             let mut blob = nbt::Blob::new();
             blob.insert("Level", nbt::Value::Compound(compund))?;
@@ -310,6 +403,11 @@ impl Chunk {
         }
 
         Ok(())
+    }
+
+    pub fn is_inside_chunk(&self, x: i32, z: i32) -> bool {
+        let (chunk_x, chunk_z) = ((x - x % 16) / 16, (z - z % 16) / 16);
+        self.chunk_x == chunk_x && self.chunk_z == chunk_z
     }
 
     pub fn get_compressed_data(&self) -> (i32, Vec<u8>) {

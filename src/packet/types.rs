@@ -14,7 +14,7 @@ pub mod to_client_packets {
     #[serialize(0x01)]
     #[derive(Debug, Clone, Deserialize)]
     pub struct LoginResponsePacket {
-        pub entity_id: i32,
+        pub entity_id: u32,
         pub _unused1: String,
         pub _unused2: String,
         pub map_seed: i64,
@@ -142,13 +142,13 @@ pub mod to_client_packets {
     #[serialize(0x12)]
     #[derive(Debug, Clone, Deserialize)]
     pub struct AnimationPacket {
-        pub entity_id: i32,
+        pub entity_id: u32,
         pub animate: u8,
     }
     #[serialize(0x14)]
     #[derive(Debug, Clone, Deserialize)]
     pub struct NamedEntitySpawnPacket {
-        pub entity_id: i32,
+        pub entity_id: u32,
         pub name: String,
         pub x: i32,
         pub y: i32,
@@ -207,7 +207,7 @@ pub mod to_client_packets {
     #[serialize(0x1D)]
     #[derive(Debug, Clone, Deserialize)]
     pub struct DestroyEntityPacket {
-        pub entity_id: i32,
+        pub entity_id: u32,
     }
     #[serialize(0x1E)]
     #[derive(Debug, Clone, Deserialize)]

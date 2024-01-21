@@ -1,11 +1,11 @@
+use crate::world::Chunk;
+use crate::BUFFER_SIZE;
+use bevy::prelude::{Bundle, Component};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::net::TcpStream;
 use std::sync::{Arc, Mutex, RwLock};
-use bevy::prelude::{Bundle, Component};
-use crate::BUFFER_SIZE;
-use crate::world::Chunk;
 
 #[derive(Component, Default)]
 pub struct Position {
@@ -31,7 +31,7 @@ pub struct Look {
 
 #[derive(Component, Default)]
 pub struct Named {
-    pub name: String
+    pub name: String,
 }
 
 pub mod connection_state {
@@ -52,7 +52,7 @@ pub mod connection_state {
 #[derive(Component)]
 pub struct ClientStream {
     pub stream: Arc<RwLock<TcpStream>>,
-    pub left_over: Arc<RwLock<Vec<u8>>>
+    pub left_over: Arc<RwLock<Vec<u8>>>,
 }
 
 impl ClientStream {
@@ -73,7 +73,12 @@ impl ClientStream {
 
 #[derive(Component)]
 pub struct PlayerChunkDB {
-    pub chunks: HashMap<u64, Arc<RwLock<Chunk>>>,
+    pub chunks: HashMap<(i32, i32), Arc<RwLock<Chunk>>>,
+}
+
+#[derive(Component)]
+pub struct PlayerEntityDB {
+    pub visible_entities: Arc<RwLock<Vec<u32>>>,
 }
 
 #[derive(Bundle)]

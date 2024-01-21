@@ -44,7 +44,9 @@ pub mod connection_state {
     #[derive(Component)]
     pub struct Playing;
     #[derive(Component)]
-    pub struct Disconnecting {}
+    pub struct Disconnecting {
+        pub reason: String,
+    }
 }
 
 #[derive(Component)]

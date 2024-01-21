@@ -34,7 +34,8 @@ fn main() -> std::io::Result<()> {
         .add_systems(schedule::ServerTickLabel(),
                      (
                          system::keep_alive_system,
-                         system::chat_message_system
+                         system::chat_message_system,
+                         system::disconnecting_system,
                      ),
         )
         .insert_resource(World::open("./ExampleWorld")?)
@@ -285,6 +286,16 @@ mod system {
         }
     }
 
+    pub fn disconnecting_system(mut query: Query<(Entity, &ClientStream, &connection_state::Disconnecting)>, mut commands: Commands) {
+        for (entity, stream, state) in &mut query {
+            let mut stream: RwLockWriteGuard<'_, TcpStream> = stream.stream.write().unwrap();
+            let packet = to_client_packets::KickPacket { reason: state.reason.clone() };
+            stream.write_all(&packet.serialize().unwrap()).unwrap();
+            stream.flush().unwrap();
+            commands.entity(entity).despawn();
+        }
+    }
+
 
     pub fn tick_system(
         mut query: Query<(Entity, &ClientStream), With<connection_state::Playing>>
@@ -330,10 +341,14 @@ mod system {
                         match packet_id {
                             ids::KEEP_ALIVE => {
                                 to_server_packets::HandshakePacket::nested_deserialize(&mut cursor)?;
-                            }
+                            },
+                            ids::HANDSHAKE => {
+                                let packet = to_server_packets::HandshakePacket::nested_deserialize(&mut cursor)?;
+                                warn!("Received invalid handshake packet: {packet:?}")
+                            },
                             ids::LOGIN => {
                                 let packet = to_server_packets::LoginRequestPacket::nested_deserialize(&mut cursor)?;
-                                debug!("{packet:?}")
+                                warn!("Received invalid login packet: {packet:?}")
                             }
                             ids::CHAT_MESSAGE => {
                                 let packet = to_server_packets::ChatMessagePacket::nested_deserialize(&mut cursor)?;
@@ -357,10 +372,10 @@ mod system {
                             ids::KICK_OR_DISCONNECT => {
                                 let packet = to_server_packets::DisconnectPacket::nested_deserialize(&mut cursor)?;
                                 info!("{} left the world: {}", name_component.name, packet.reason);
-                                commands.entity(entity).remove::<ClientStream>().remove::<connection_state::Playing>().insert(connection_state::Disconnecting {});
+                                chat_message_event_emitter.send(event::ChatMessageEvent { from: "SYS".to_string(), message: format!("{} left the world for reason: {:?}", name_component.name, packet.reason) });
                             }
                             _ => {
-                                error!("Unhandled packet id: {packet_id}");
+                                error!("Unhandled packet id: {packet_id} cannot continue!");
                                 return Err(PacketError::InvalidPacketID(packet_id));
                             }
                         }
@@ -370,11 +385,20 @@ mod system {
                     }
                 })();
 
-                if let Ok(n) = res {
-                    buf_start += n;
-                    left_over.clear();
-                    left_over.append(&mut buf[buf_start..buf_end].to_vec());
-                    break;
+                match res {
+                    Ok(n) => {
+                        buf_start += n;
+                        left_over.clear();
+                        left_over.append(&mut buf[buf_start..buf_end].to_vec());
+                        break;
+                    }
+                    Err(PacketError::InvalidPacketID(id)) => {
+                        commands.entity(entity).remove::<connection_state::Playing>().insert(
+                            connection_state::Disconnecting { reason: format!("You send a packet with id: {id}, which isn't handled just yet!") }
+                        );
+                        break;
+                    }
+                    Err(..) => {}
                 }
 
                 match stream.read(&mut buf[buf_end..]) {
@@ -390,14 +414,11 @@ mod system {
                     Err(err) => match err.kind() {
                         ErrorKind::ConnectionRefused | ErrorKind::ConnectionReset | ErrorKind::BrokenPipe | ErrorKind::TimedOut => {
                             // Transition state from `Playing` to `Disconnecting`
-                            info!("{} left the world!", name_component.name);
-                            commands.entity(entity).remove::<ClientStream>().remove::<connection_state::Playing>().insert(connection_state::Disconnecting {});
+                            info!("{} left the world, because of error {err}", name_component.name);
+                            commands.entity(entity).despawn();
                             break;
                         }
-                        _ => {
-                            // error!("{err}");
-                            // break;
-                        }
+                        _ => {}
                     }
                 }
             }

@@ -11,6 +11,8 @@ pub struct Position {
     pub x: f64,
     pub y: f64,
     pub z: f64,
+    pub stance: f64,
+    pub on_ground: bool,
 }
 
 #[derive(Component, Default)]
@@ -37,9 +39,11 @@ pub mod connection_state {
     pub struct Login;
     pub struct Initializing;
     pub struct Playing;
+    pub struct Disconnecting;
     impl ConnectionState for Login {}
     impl ConnectionState for Initializing {}
     impl ConnectionState for Playing {}
+    impl ConnectionState for Disconnecting {}
 }
 
 #[derive(Component)]

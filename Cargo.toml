@@ -19,9 +19,10 @@ rayon = "1.8.0"
 libz-sys = "1.1.12"
 betalpha-derive = {path = "betalpha-derive"}
 # bevy_ecs = "0.12.1"
-bevy = "0.12.1"
+bevy = { version = "0.12.1", default-features = false }
 log = "0.4.20"
 simple_logger = "4.3.3"
+anymap = "^0.12"
 
 [workspace]
 members = ["betalpha-derive"]

@@ -395,3 +395,21 @@ pub fn unload_chunks(
         }
     }
 }
+
+pub fn increment_time(
+    mut world: ResMut<World>,
+    mut query: Query<&ClientStream, With<connection_state::Playing>>,
+) {
+    let current_time = world.get_time();
+    world.set_time(current_time + 20);
+    let packet = to_client_packets::TimeUpdatePacket {
+        time: world.get_time(),
+    }
+    .serialize()
+    .unwrap();
+    for stream_component in &mut query {
+        let mut stream: RwLockWriteGuard<'_, TcpStream> = stream_component.stream.write().unwrap();
+        stream.write_all(&packet).unwrap();
+        stream.flush().unwrap();
+    }
+}

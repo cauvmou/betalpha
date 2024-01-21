@@ -250,6 +250,17 @@ impl World {
     pub fn get_spawn(&self) -> [i32; 3] {
         self.spawn
     }
+
+    pub fn get_time(&self) -> u64 {
+        self.time
+    }
+
+    pub fn set_time(&mut self, time: u64) {
+        self.time = time;
+        if time >= 24000 {
+            self.time -= 24000;
+        }
+    }
 }
 
 pub struct Chunk {

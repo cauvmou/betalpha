@@ -24,6 +24,7 @@ fn main() -> std::io::Result<()> {
     listener.set_nonblocking(true)?;
     App::new()
         .add_schedule(Schedule::new(schedule::ServerTickLabel()))
+        .add_schedule(Schedule::new(schedule::SecondTickLabel()))
         .add_event::<event::ChatMessageEvent>()
         .add_event::<event::PlayerPositionAndLookEvent>()
         .add_systems(
@@ -49,15 +50,21 @@ fn main() -> std::io::Result<()> {
                 system::correct_player_position,
             ),
         )
+        .add_systems(schedule::SecondTickLabel(), (system::increment_time,))
         .insert_resource(World::open("./ExampleWorld")?)
         .insert_resource(TcpWrapper { listener })
         .set_runner(|mut app: App| {
             let mut instant = Instant::now();
+            let mut second_instant = Instant::now();
             loop {
                 app.update();
                 if instant.elapsed().as_millis() >= 50 {
                     app.world.run_schedule(schedule::ServerTickLabel());
                     instant = Instant::now();
+                }
+                if second_instant.elapsed().as_millis() >= 1000 {
+                    app.world.run_schedule(schedule::SecondTickLabel());
+                    second_instant = Instant::now();
                 }
             }
         })
@@ -558,4 +565,7 @@ mod schedule {
 
     #[derive(ScheduleLabel, Debug, Clone, PartialEq, Eq, Hash)]
     pub struct ServerTickLabel();
+
+    #[derive(ScheduleLabel, Debug, Clone, PartialEq, Eq, Hash)]
+    pub struct SecondTickLabel();
 }

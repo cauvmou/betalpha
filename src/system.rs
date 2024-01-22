@@ -319,15 +319,15 @@ pub fn load_chunks(
 ) {
     for (entity, position, stream_component, mut db) in &mut query {
         // Get players chunk
-        let x = position.x.round() as i32;
-        let z = position.z.round() as i32;
+        let x = position.x.floor() as i32;
+        let z = position.z.floor() as i32;
         let (player_chunk_x, player_chunk_z) = ((x - x % 16) / 16, (z - z % 16) / 16);
 
         let mut stream: RwLockWriteGuard<'_, TcpStream> = stream_component.stream.write().unwrap();
 
-        let chunk_r = crate::INITIAL_CHUNK_LOAD_SIZE / 2;
-        for x in (player_chunk_x - chunk_r)..(player_chunk_x + chunk_r) {
-            for z in (player_chunk_z - chunk_r)..(player_chunk_z + chunk_r) {
+        let chunk_r = crate::RENDER_DISTANCE_RADIUS;
+        for x in (player_chunk_x - chunk_r)..=(player_chunk_x + chunk_r) {
+            for z in (player_chunk_z - chunk_r)..=(player_chunk_z + chunk_r) {
                 match world.get_chunk(x, z) {
                     Ok(chunk) => {
                         //debug!("Loaded chunk at (x: {x}, z: {z}).");
@@ -379,18 +379,18 @@ pub fn unload_chunks(
 ) {
     for (entity, position, stream_component, mut db) in &mut query {
         // Get players chunk
-        let x = position.x.round() as i32;
-        let z = position.z.round() as i32;
+        let x = position.x.floor() as i32;
+        let z = position.z.floor() as i32;
         let (player_chunk_x, player_chunk_z) = ((x - x % 16) / 16, (z - z % 16) / 16);
 
         let mut stream: RwLockWriteGuard<'_, TcpStream> = stream_component.stream.write().unwrap();
 
-        let chunk_r = crate::INITIAL_CHUNK_LOAD_SIZE / 2;
+        let chunk_r = crate::RENDER_DISTANCE_RADIUS;
         let mut loaded = Vec::with_capacity(
-            crate::INITIAL_CHUNK_LOAD_SIZE as usize * crate::INITIAL_CHUNK_LOAD_SIZE as usize,
+            crate::RENDER_DISTANCE_RADIUS as usize * crate::RENDER_DISTANCE_RADIUS as usize,
         );
-        for x in (player_chunk_x - chunk_r)..(player_chunk_x + chunk_r) {
-            for z in (player_chunk_z - chunk_r)..(player_chunk_z + chunk_r) {
+        for x in (player_chunk_x - chunk_r)..=(player_chunk_x + chunk_r) {
+            for z in (player_chunk_z - chunk_r)..=(player_chunk_z + chunk_r) {
                 loaded.push((x, z));
             }
         }

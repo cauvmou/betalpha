@@ -16,10 +16,10 @@ mod util;
 mod world;
 
 pub(crate) const BUFFER_SIZE: usize = 1024 * 8;
-pub(crate) const INITIAL_CHUNK_LOAD_SIZE: i32 = 8; // Diameter of chunks to send to player in `Initializing` state.
+pub(crate) const RENDER_DISTANCE_RADIUS: i32 = 4; // Diameter of chunks to send to player in `Initializing` state.
 
 fn main() -> std::io::Result<()> {
-    simple_logger::init_with_level(Level::Info).expect("Failed to initialize logging!");
+    simple_logger::init_with_level(Level::Debug).expect("Failed to initialize logging!");
     let listener = TcpListener::bind("0.0.0.0:25565")?;
     listener.set_nonblocking(true)?;
     App::new()
@@ -247,9 +247,9 @@ mod core {
                     name_component.name
                 );
                 let mut local_db = HashMap::with_capacity(8 * 8);
-                let chunk_r = crate::INITIAL_CHUNK_LOAD_SIZE / 2;
-                for x in (player_chunk_x - chunk_r)..(player_chunk_x + chunk_r) {
-                    for z in (player_chunk_z - chunk_r)..(player_chunk_z + chunk_r) {
+                let chunk_r = crate::RENDER_DISTANCE_RADIUS / 2;
+                for x in (player_chunk_x - chunk_r)..=(player_chunk_x + chunk_r) {
+                    for z in (player_chunk_z - chunk_r)..=(player_chunk_z + chunk_r) {
                         match world.get_chunk(x, z) {
                             Ok(chunk) => {
                                 debug!("Loaded chunk at (x: {x}, z: {z}).");

@@ -74,6 +74,25 @@ pub fn chat_message(
     }
 }
 
+pub fn system_message(
+    mut chat_message_event_collector: EventReader<event::SystemMessageEvent>,
+    mut query: Query<&ClientStream, With<connection_state::Playing>>,
+) {
+    let messages = chat_message_event_collector.read().collect::<Vec<_>>();
+    for stream in &mut query {
+        {
+            let mut stream: RwLockWriteGuard<'_, TcpStream> = stream.stream.write().unwrap();
+            messages.iter().for_each(|m| {
+                let packet = to_client_packets::ChatMessagePacket {
+                    message: m.message.clone(),
+                };
+                stream.write_all(&packet.serialize().unwrap()).unwrap();
+            });
+            stream.flush().unwrap();
+        }
+    }
+}
+
 pub fn calculate_visible_players(
     (mut query_entities, mut other): (
         Query<

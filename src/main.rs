@@ -27,6 +27,7 @@ fn main() -> std::io::Result<()> {
         .add_schedule(Schedule::new(schedule::SecondTickLabel()))
         .add_event::<event::ChatMessageEvent>()
         .add_event::<event::PlayerPositionAndLookEvent>()
+        .add_event::<event::SystemMessageEvent>()
         .add_systems(
             Update,
             (
@@ -46,6 +47,7 @@ fn main() -> std::io::Result<()> {
             (
                 system::keep_alive,
                 system::chat_message,
+                system::system_message,
                 system::disconnecting,
                 system::correct_player_position,
             ),
@@ -84,7 +86,6 @@ mod core {
         ClientStream, Look, Named, PlayerBundle, PlayerChunkDB, PlayerEntityDB, PreviousPosition,
         Velocity,
     };
-    use crate::event::PlayerPositionAndLookEvent;
     use crate::packet::{ids, to_client_packets, to_server_packets, PacketError};
     use crate::packet::{Deserialize, Serialize};
     use crate::world::{Chunk, World};
@@ -367,8 +368,9 @@ mod core {
 
     // This is the dirty part no one wants to talk about.
     pub fn event_emitter_system(
+        mut system_message_event_emitter: EventWriter<event::SystemMessageEvent>,
         mut chat_message_event_emitter: EventWriter<event::ChatMessageEvent>,
-        mut position_and_look_emitter: EventWriter<event::PlayerPositionAndLookEvent>,
+        mut position_and_look_event_emitter: EventWriter<event::PlayerPositionAndLookEvent>,
         mut query: Query<(Entity, &ClientStream, &Named), (With<connection_state::Playing>)>,
         mut commands: Commands,
     ) {
@@ -420,8 +422,8 @@ mod core {
                             }
                             ids::PLAYER_POSITION_AND_LOOK => {
                                 let to_server_packets::PlayerPositionLookPacket { x, y, stance, z, yaw, pitch, on_ground } = to_server_packets::PlayerPositionLookPacket::nested_deserialize(&mut cursor)?;
-                                position_and_look_emitter.send(
-                                    PlayerPositionAndLookEvent::PositionAndLook {
+                                position_and_look_event_emitter.send(
+                                    event::PlayerPositionAndLookEvent::PositionAndLook {
                                         entity_id: entity.index(),
                                         x,
                                         y,
@@ -447,8 +449,8 @@ mod core {
                                 } = to_server_packets::PlayerPositionPacket::nested_deserialize(
                                     &mut cursor,
                                 )?;
-                                position_and_look_emitter.send(
-                                    PlayerPositionAndLookEvent::Position {
+                                position_and_look_event_emitter.send(
+                                    event::PlayerPositionAndLookEvent::Position {
                                         entity_id: entity.index(),
                                         x,
                                         y,
@@ -465,11 +467,13 @@ mod core {
                                 } = to_server_packets::PlayerLookPacket::nested_deserialize(
                                     &mut cursor,
                                 )?;
-                                position_and_look_emitter.send(PlayerPositionAndLookEvent::Look {
-                                    entity_id: entity.index(),
-                                    yaw,
-                                    pitch,
-                                });
+                                position_and_look_event_emitter.send(
+                                    event::PlayerPositionAndLookEvent::Look {
+                                        entity_id: entity.index(),
+                                        yaw,
+                                        pitch,
+                                    },
+                                );
                             }
                             ids::ANIMATION => {
                                 let packet =
@@ -483,10 +487,9 @@ mod core {
                                         &mut cursor,
                                     )?;
                                 info!("{} left the world: {}", name_component.name, packet.reason);
-                                chat_message_event_emitter.send(event::ChatMessageEvent {
-                                    from: "SYS".to_string(),
+                                system_message_event_emitter.send(event::SystemMessageEvent {
                                     message: format!(
-                                        "{} left the world for reason: {:?}",
+                                        "{} left the world [{:?}]",
                                         name_component.name, packet.reason
                                     ),
                                 });

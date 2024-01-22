@@ -9,6 +9,11 @@ pub struct ChatMessageEvent {
 }
 
 #[derive(Event)]
+pub struct SystemMessageEvent {
+    pub message: String,
+}
+
+#[derive(Event)]
 pub enum PlayerPositionAndLookEvent {
     PositionAndLook {
         entity_id: u32,

@@ -9,7 +9,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex, RwLock, TryLockResult};
 
 mod util {
     pub fn read_nbt_i64(blob: &nbt::Blob, name: &'static str) -> std::io::Result<i64> {
@@ -177,7 +177,7 @@ impl World {
     }
 
     pub fn close(self) -> std::io::Result<()> {
-        let mut file = std::fs::File::open(self.path.join("level.dat"))?;
+        let mut file = std::fs::File::create(self.path.join("level.dat"))?;
         let mut compund = HashMap::with_capacity(7);
         compund.insert("RandomSeed".to_string(), nbt::Value::Long(self.seed as i64));
         compund.insert("SpawnX".to_string(), nbt::Value::Int(self.spawn[0]));
@@ -239,6 +239,18 @@ impl World {
                 std::io::ErrorKind::NotFound,
                 "Chunk is not loaded!",
             ))
+        }
+    }
+
+    pub fn save_chunk(&mut self, x: i32, z: i32) -> std::io::Result<()> {
+        let chunk = self.get_chunk(x, z)?;
+        let chunk = chunk.try_write();
+        match chunk {
+            Ok(chunk) => chunk.save(&self.path),
+            Err(err) => Err(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                err.to_string(),
+            )),
         }
     }
 
@@ -360,7 +372,7 @@ impl Chunk {
         })
     }
 
-    pub fn save(&mut self, world_path: &Path) -> std::io::Result<()> {
+    pub fn save(&self, world_path: &Path) -> std::io::Result<()> {
         let (x_string, z_string) = (self.chunk_x, self.chunk_z);
         let (high_level, low_level) = (
             base36_from_u64(self.chunk_x as u64 % 64),
@@ -377,39 +389,39 @@ impl Chunk {
                 }
             };
 
-            let mut file = std::fs::File::open(file_path)?;
-            let mut compund = HashMap::with_capacity(7);
-            compund.insert(
+            let mut file = std::fs::File::create(file_path)?;
+            let mut compound = HashMap::with_capacity(7);
+            compound.insert(
                 "TerrainPopulated".to_string(),
                 nbt::Value::Byte(self.terrain_populated as i8),
             );
-            compund.insert(
+            compound.insert(
                 "LastUpdate".to_string(),
                 nbt::Value::Long(self.last_update as i64),
             );
-            compund.insert(
+            compound.insert(
                 "Blocks".to_string(),
                 nbt::Value::ByteArray(vu8_vi8(&self.blocks)),
             );
-            compund.insert(
+            compound.insert(
                 "Data".to_string(),
                 nbt::Value::ByteArray(vu8_vi8(&self.data)),
             );
-            compund.insert(
+            compound.insert(
                 "BlockLight".to_string(),
                 nbt::Value::ByteArray(vu8_vi8(&self.block_light)),
             );
-            compund.insert(
+            compound.insert(
                 "SkyLight".to_string(),
                 nbt::Value::ByteArray(vu8_vi8(&self.sky_light)),
             );
-            compund.insert(
+            compound.insert(
                 "HeightMap".to_string(),
                 nbt::Value::ByteArray(vu8_vi8(&self.height_map)),
             );
 
             let mut blob = nbt::Blob::new();
-            blob.insert("Level", nbt::Value::Compound(compund))?;
+            blob.insert("Level", nbt::Value::Compound(compound))?;
             blob.to_gzip_writer(&mut file)?;
         }
 

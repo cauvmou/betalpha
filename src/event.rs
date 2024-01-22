@@ -37,3 +37,56 @@ pub enum PlayerPositionAndLookEvent {
         pitch: f32,
     },
 }
+
+#[derive(Copy, Clone, Debug)]
+pub enum Face {
+    Bottom = 0,
+    Top = 1,
+    Back = 2,
+    Front = 3,
+    Left = 4,
+    Right = 5,
+    UNKNOWN,
+}
+
+impl From<u8> for Face {
+    fn from(value: u8) -> Self {
+        match value {
+            0 => Face::Bottom,
+            1 => Face::Top,
+            2 => Face::Back,
+            3 => Face::Front,
+            4 => Face::Left,
+            5 => Face::Right,
+            _ => Face::UNKNOWN,
+        }
+    }
+}
+#[derive(Event, Debug)]
+pub enum PlayerDiggingEvent {
+    Started {
+        entity: Entity,
+        x: i32,
+        y: i8,
+        z: i32,
+        face: Face,
+    },
+    InProgress {
+        entity: Entity,
+    },
+    Stopped {
+        entity: Entity,
+    },
+    Completed {
+        entity: Entity,
+    },
+}
+
+#[derive(Event)]
+pub struct BlockChangeEvent {
+    pub x: i32,
+    pub y: i8,
+    pub z: i32,
+    pub ty: u8,
+    pub metadata: u8,
+}

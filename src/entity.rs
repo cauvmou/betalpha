@@ -104,6 +104,14 @@ pub struct PlayerEntityDB {
     pub visible_entities: Arc<RwLock<Vec<u32>>>,
 }
 
+#[derive(Component)]
+pub struct Digging {
+    pub x: i32,
+    pub y: i8,
+    pub z: i32,
+    pub face: crate::event::Face,
+}
+
 #[derive(Bundle)]
 pub struct PlayerBundle {
     pub stream: ClientStream,

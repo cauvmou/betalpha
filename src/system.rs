@@ -1,8 +1,8 @@
-use crate::entity::{connection_state, PreviousPosition};
+use crate::entity::{connection_state, Digging, PreviousPosition};
 use crate::entity::{
     ClientStream, Look, Named, PlayerBundle, PlayerChunkDB, PlayerEntityDB, Position, Velocity,
 };
-use crate::event::PlayerPositionAndLookEvent;
+use crate::event::{BlockChangeEvent, PlayerDiggingEvent, PlayerPositionAndLookEvent};
 use crate::packet::{ids, to_client_packets, to_server_packets, PacketError};
 use crate::packet::{Deserialize, Serialize};
 use crate::world::{Chunk, World};
@@ -13,6 +13,7 @@ use log::{debug, error, info, warn};
 use std::collections::HashMap;
 use std::io::{BufReader, Cursor, ErrorKind, Read, Write};
 use std::net::TcpStream;
+use std::process::Command;
 use std::sync::{Arc, RwLock, RwLockWriteGuard};
 
 pub fn keep_alive(mut query: Query<&ClientStream, With<connection_state::Playing>>) {
@@ -310,6 +311,90 @@ pub fn correct_player_position(
     }
 }
 
+pub fn digging(
+    mut event_collector: EventReader<PlayerDiggingEvent>,
+    mut event_emitter: EventWriter<BlockChangeEvent>,
+    mut query: Query<(Entity, &Digging), With<Digging>>,
+    mut commands: Commands,
+) {
+    for event in event_collector.read() {
+        debug!("{event:?}");
+        match event {
+            PlayerDiggingEvent::Started {
+                entity,
+                x,
+                y,
+                z,
+                face,
+            } => {
+                commands.entity(*entity).insert(Digging {
+                    x: *x,
+                    y: *y,
+                    z: *z,
+                    face: *face,
+                });
+            }
+            PlayerDiggingEvent::InProgress { entity } => {}
+            PlayerDiggingEvent::Stopped { entity } => {
+                commands.entity(*entity).remove::<Digging>();
+            }
+            PlayerDiggingEvent::Completed { entity } => {
+                for (player, digging) in &mut query {
+                    if player.index() != entity.index() {
+                        continue;
+                    }
+                    event_emitter.send(BlockChangeEvent {
+                        x: digging.x,
+                        y: digging.y,
+                        z: digging.z,
+                        ty: 0,
+                        metadata: 0,
+                    });
+                }
+                commands.entity(*entity).remove::<Digging>();
+            }
+        }
+    }
+}
+
+pub fn block_change(
+    mut world: ResMut<World>,
+    mut event_collector: EventReader<BlockChangeEvent>,
+    mut query: Query<&ClientStream, With<connection_state::Playing>>,
+) {
+    let events = event_collector.read().collect::<Vec<_>>();
+    for stream in &mut query {
+        let mut stream = stream.stream.write().unwrap();
+        for event in events.clone() {
+            let (chunk_x, chunk_z) = (event.x >> 4, event.z >> 4);
+            if let Ok(chunk) = world.get_chunk(chunk_x, chunk_z) {
+                if let Ok(mut chunk) = chunk.write() {
+                    let old_block = chunk.set_block(
+                        (event.x & 15) as u8,
+                        event.y as u8,
+                        (event.z & 15) as u8,
+                        0,
+                    );
+                    info!("Removed block from world: {old_block:?}");
+                } else {
+                    warn!("Cloud not obtain chunk!")
+                }
+            } else {
+                warn!("Chunk is unable to load!")
+            }
+            let packet = to_client_packets::BlockChangePacket {
+                x: event.x,
+                y: event.y,
+                z: event.z,
+                block_type: event.ty as i8,
+                block_metadata: event.metadata as i8,
+            };
+            stream.write_all(&packet.serialize().unwrap()).unwrap();
+        }
+        stream.flush().unwrap();
+    }
+}
+
 pub fn load_chunks(
     mut world: ResMut<World>,
     mut query: Query<
@@ -321,7 +406,7 @@ pub fn load_chunks(
         // Get players chunk
         let x = position.x.floor() as i32;
         let z = position.z.floor() as i32;
-        let (player_chunk_x, player_chunk_z) = ((x - x % 16) / 16, (z - z % 16) / 16);
+        let (player_chunk_x, player_chunk_z) = (x >> 4, z >> 4);
 
         let mut stream: RwLockWriteGuard<'_, TcpStream> = stream_component.stream.write().unwrap();
 
@@ -381,7 +466,7 @@ pub fn unload_chunks(
         // Get players chunk
         let x = position.x.floor() as i32;
         let z = position.z.floor() as i32;
-        let (player_chunk_x, player_chunk_z) = ((x - x % 16) / 16, (z - z % 16) / 16);
+        let (player_chunk_x, player_chunk_z) = (x >> 4, z >> 4);
 
         let mut stream: RwLockWriteGuard<'_, TcpStream> = stream_component.stream.write().unwrap();
 

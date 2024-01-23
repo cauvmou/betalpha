@@ -1,5 +1,7 @@
+use crate::packet;
 use crate::packet::{Deserialize, Serialize};
 use bevy::prelude::{Entity, Event};
+use std::cmp::Ordering;
 use std::marker::PhantomData;
 
 #[derive(Event)]
@@ -89,4 +91,45 @@ pub struct BlockChangeEvent {
     pub z: i32,
     pub ty: u8,
     pub metadata: u8,
+}
+
+#[derive(Event, PartialEq, Eq)]
+pub struct SendPacketEvent {
+    pub entity: Entity,
+    pub ord: usize,
+    pub bytes: Vec<u8>,
+}
+
+impl SendPacketEvent {
+    pub fn new<T: Serialize>(entity: Entity, packet: T) -> Result<Self, packet::PacketError> {
+        Ok(Self {
+            entity,
+            ord: 5,
+            bytes: packet.serialize()?,
+        })
+    }
+
+    pub fn with_ord<T: Serialize>(
+        entity: Entity,
+        ord: usize,
+        packet: T,
+    ) -> Result<Self, packet::PacketError> {
+        Ok(Self {
+            entity,
+            ord,
+            bytes: packet.serialize()?,
+        })
+    }
+}
+
+impl PartialOrd for SendPacketEvent {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for SendPacketEvent {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.ord.cmp(&other.ord)
+    }
 }

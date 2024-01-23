@@ -1,8 +1,8 @@
 use crate::entity::{connection_state, Digging, PreviousPosition};
-use crate::entity::{
-    ClientStream, Look, Named, PlayerBundle, PlayerChunkDB, PlayerEntityDB, Position, Velocity,
+use crate::entity::{Look, Named, PlayerBundle, PlayerChunkDB, PlayerEntityDB, Position, Velocity};
+use crate::event::{
+    BlockChangeEvent, PlayerDiggingEvent, PlayerPositionAndLookEvent, SendPacketEvent,
 };
-use crate::event::{BlockChangeEvent, PlayerDiggingEvent, PlayerPositionAndLookEvent};
 use crate::packet::{ids, to_client_packets, to_server_packets, PacketError};
 use crate::packet::{Deserialize, Serialize};
 use crate::world::{Chunk, World};
@@ -16,96 +16,109 @@ use std::net::TcpStream;
 use std::process::Command;
 use std::sync::{Arc, RwLock, RwLockWriteGuard};
 
-pub fn keep_alive(mut query: Query<&ClientStream, With<connection_state::Playing>>) {
-    for stream in &mut query {
-        let mut stream: RwLockWriteGuard<'_, TcpStream> = stream.stream.write().unwrap();
-        stream.write_all(&[0x00]).unwrap();
-        stream.flush().unwrap();
+pub fn keep_alive(
+    mut packet_event_emitter: EventWriter<SendPacketEvent>,
+    mut query: Query<Entity, With<connection_state::Playing>>,
+) {
+    for entity in &mut query {
+        packet_event_emitter
+            .send(SendPacketEvent::new(entity, to_client_packets::KeepAlive {}).unwrap())
     }
 }
 
 pub fn disconnecting(
+    mut packet_event_emitter: EventWriter<SendPacketEvent>,
     (mut query, mut other): (
-        Query<(Entity, &ClientStream, &connection_state::Disconnecting)>,
-        Query<(Entity, &ClientStream, &PlayerEntityDB), With<connection_state::Playing>>,
+        Query<(Entity, &connection_state::Disconnecting)>,
+        Query<(Entity, &PlayerEntityDB), With<connection_state::Playing>>,
     ),
     mut commands: Commands,
 ) {
-    for (entity, stream_component, state) in &mut query {
-        let mut stream: RwLockWriteGuard<'_, TcpStream> = stream_component.stream.write().unwrap();
-        let packet = to_client_packets::KickPacket {
-            reason: state.reason.clone(),
-        };
-        stream.write_all(&packet.serialize().unwrap()).unwrap();
-        stream.flush().unwrap();
+    for (entity, state) in &mut query {
+        packet_event_emitter.send(
+            SendPacketEvent::new(
+                entity,
+                to_client_packets::KickPacket {
+                    reason: state.reason.clone(),
+                },
+            )
+            .unwrap(),
+        );
         commands.entity(entity).despawn();
         // Delete player for other players
-        for (other, stream_component, db) in &mut other {
-            let mut stream: RwLockWriteGuard<'_, TcpStream> =
-                stream_component.stream.write().unwrap();
+        for (other, db) in &mut other {
             let mut list: RwLockWriteGuard<Vec<u32>> = db.visible_entities.write().unwrap();
             if let Some(index) = list.iter().position(|p| *p == entity.index()) {
                 list.swap_remove(index);
             }
-            let packet = to_client_packets::DestroyEntityPacket {
-                entity_id: entity.index(),
-            };
-            stream.write_all(&packet.serialize().unwrap()).unwrap();
-            stream.flush().unwrap();
+            packet_event_emitter.send(
+                SendPacketEvent::new(
+                    other,
+                    to_client_packets::DestroyEntityPacket {
+                        entity_id: entity.index(),
+                    },
+                )
+                .unwrap(),
+            );
         }
     }
 }
 
 pub fn chat_message(
+    mut packet_event_emitter: EventWriter<SendPacketEvent>,
     mut chat_message_event_collector: EventReader<event::ChatMessageEvent>,
-    mut query: Query<&ClientStream, With<connection_state::Playing>>,
+    mut query: Query<Entity, With<connection_state::Playing>>,
 ) {
     let messages = chat_message_event_collector.read().collect::<Vec<_>>();
-    for stream in &mut query {
+    for entity in &mut query {
         {
-            let mut stream: RwLockWriteGuard<'_, TcpStream> = stream.stream.write().unwrap();
             messages.iter().for_each(|m| {
-                let packet = to_client_packets::ChatMessagePacket {
-                    message: format!("<{}> {}", m.from, m.message),
-                };
-                stream.write_all(&packet.serialize().unwrap()).unwrap();
+                packet_event_emitter.send(
+                    SendPacketEvent::new(
+                        entity,
+                        to_client_packets::ChatMessagePacket {
+                            message: format!("<{}> {}", m.from, m.message),
+                        },
+                    )
+                    .unwrap(),
+                );
             });
-            stream.flush().unwrap();
         }
     }
 }
 
 pub fn system_message(
+    mut packet_event_emitter: EventWriter<SendPacketEvent>,
     mut chat_message_event_collector: EventReader<event::SystemMessageEvent>,
-    mut query: Query<&ClientStream, With<connection_state::Playing>>,
+    mut query: Query<Entity, With<connection_state::Playing>>,
 ) {
     let messages = chat_message_event_collector.read().collect::<Vec<_>>();
-    for stream in &mut query {
+    for entity in &mut query {
         {
-            let mut stream: RwLockWriteGuard<'_, TcpStream> = stream.stream.write().unwrap();
             messages.iter().for_each(|m| {
-                let packet = to_client_packets::ChatMessagePacket {
-                    message: m.message.clone(),
-                };
-                stream.write_all(&packet.serialize().unwrap()).unwrap();
+                packet_event_emitter.send(
+                    SendPacketEvent::new(
+                        entity,
+                        to_client_packets::ChatMessagePacket {
+                            message: m.message.clone(),
+                        },
+                    )
+                    .unwrap(),
+                );
             });
-            stream.flush().unwrap();
         }
     }
 }
 
 pub fn calculate_visible_players(
+    mut packet_event_emitter: EventWriter<SendPacketEvent>,
     (mut query_entities, mut other): (
-        Query<
-            (Entity, &ClientStream, &mut PlayerEntityDB, &PlayerChunkDB),
-            With<connection_state::Playing>,
-        >,
+        Query<(Entity, &mut PlayerEntityDB, &PlayerChunkDB), With<connection_state::Playing>>,
         Query<(Entity, &Position, &Look, &Named), With<connection_state::Playing>>,
     ),
     mut commands: Commands,
 ) {
-    for (entity, stream_component, player_db, chunk_db) in &mut query_entities {
-        let mut stream: RwLockWriteGuard<'_, TcpStream> = stream_component.stream.write().unwrap();
+    for (entity, player_db, chunk_db) in &mut query_entities {
         let mut list: RwLockWriteGuard<Vec<u32>> = player_db.visible_entities.write().unwrap();
         let chunks: &HashMap<(i32, i32), Arc<RwLock<Chunk>>> = &chunk_db.chunks;
         for (other, other_position, other_look, other_name_component) in &mut other {
@@ -129,24 +142,32 @@ pub fn calculate_visible_players(
             match (is_inside_visible_chunks, list.contains(&other.index())) {
                 (true, false) => {
                     list.push(other.index());
-                    let packet = to_client_packets::EntityPacket {
-                        entity_id: other.index(),
-                    };
-                    stream.write_all(&packet.serialize().unwrap()).unwrap();
-                    stream.flush().unwrap();
+                    packet_event_emitter.send(
+                        SendPacketEvent::new(
+                            entity,
+                            to_client_packets::EntityPacket {
+                                entity_id: other.index(),
+                            },
+                        )
+                        .unwrap(),
+                    );
                     let (rotation, pitch) = util::pack_float_pair(other_look.yaw, other_look.pitch);
-                    let packet = to_client_packets::NamedEntitySpawnPacket {
-                        entity_id: other.index(),
-                        name: other_name_component.name.clone(),
-                        x: (other_position.x * 32.0).round() as i32,
-                        y: (other_position.y * 32.0).round() as i32,
-                        z: (other_position.z * 32.0).round() as i32,
-                        rotation,
-                        pitch,
-                        current_item: 0,
-                    };
-                    stream.write_all(&packet.serialize().unwrap()).unwrap();
-                    stream.flush().unwrap();
+                    packet_event_emitter.send(
+                        SendPacketEvent::new(
+                            entity,
+                            to_client_packets::NamedEntitySpawnPacket {
+                                entity_id: other.index(),
+                                name: other_name_component.name.clone(),
+                                x: (other_position.x * 32.0).round() as i32,
+                                y: (other_position.y * 32.0).round() as i32,
+                                z: (other_position.z * 32.0).round() as i32,
+                                rotation,
+                                pitch,
+                                current_item: 0,
+                            },
+                        )
+                        .unwrap(),
+                    );
                     debug!(
                         "Sent spawn entity: {} to entity: {}",
                         other.index(),
@@ -156,11 +177,15 @@ pub fn calculate_visible_players(
                 (false, true) => {
                     let index = list.iter().position(|p| *p == other.index()).unwrap();
                     list.swap_remove(index);
-                    let packet = to_client_packets::DestroyEntityPacket {
-                        entity_id: other.index(),
-                    };
-                    stream.write_all(&packet.serialize().unwrap()).unwrap();
-                    stream.flush().unwrap();
+                    packet_event_emitter.send(
+                        SendPacketEvent::new(
+                            entity,
+                            to_client_packets::DestroyEntityPacket {
+                                entity_id: other.index(),
+                            },
+                        )
+                        .unwrap(),
+                    );
                     debug!(
                         "Sent delete entity: {} to entity: {}",
                         other.index(),
@@ -174,7 +199,7 @@ pub fn calculate_visible_players(
 }
 
 pub fn player_movement(
-    mut event_collector: EventReader<event::PlayerPositionAndLookEvent>,
+    mut event_collector: EventReader<PlayerPositionAndLookEvent>,
     mut query: Query<
         (Entity, &mut Position, &mut PreviousPosition, &mut Look),
         With<connection_state::Playing>,
@@ -240,13 +265,13 @@ pub fn player_movement(
 }
 
 pub fn move_player(
+    mut packet_event_emitter: EventWriter<SendPacketEvent>,
     (mut query, mut other): (
-        Query<(Entity, &ClientStream), With<connection_state::Playing>>,
+        Query<Entity, With<connection_state::Playing>>,
         Query<(Entity, &Position, &PreviousPosition, &Look), With<connection_state::Playing>>,
     ),
 ) {
-    for (entity, stream_component) in &mut query {
-        let mut stream: RwLockWriteGuard<'_, TcpStream> = stream_component.stream.write().unwrap();
+    for entity in &mut query {
         for (other, position, prev_position, look) in &mut other {
             if entity.index() == other.index() {
                 continue;
@@ -255,40 +280,48 @@ pub fn move_player(
             let (yaw, pitch) = crate::util::pack_float_pair(look.yaw, look.pitch);
             if prev_position.distance_moved(&position) < 4.0 {
                 let (x, y, z) = prev_position.relative_movement(&position);
-                let packet = to_client_packets::EntityLookRelativeMovePacket {
-                    entity_id: other.index(),
-                    x,
-                    y,
-                    z,
-                    yaw,
-                    pitch,
-                };
-                stream.write_all(&packet.serialize().unwrap()).unwrap();
+                packet_event_emitter.send(
+                    SendPacketEvent::new(
+                        entity,
+                        to_client_packets::EntityLookRelativeMovePacket {
+                            entity_id: other.index(),
+                            x,
+                            y,
+                            z,
+                            yaw,
+                            pitch,
+                        },
+                    )
+                    .unwrap(),
+                );
             } else {
-                let packet = to_client_packets::EntityTeleportPacket {
-                    entity_id: other.index(),
-                    x: (position.x * 32.0).round() as i32,
-                    y: (position.y * 32.0).round() as i32,
-                    z: (position.z * 32.0).round() as i32,
-                    yaw,
-                    pitch,
-                };
-                stream.write_all(&packet.serialize().unwrap()).unwrap();
+                packet_event_emitter.send(
+                    SendPacketEvent::new(
+                        entity,
+                        to_client_packets::EntityTeleportPacket {
+                            entity_id: other.index(),
+                            x: (position.x * 32.0).round() as i32,
+                            y: (position.y * 32.0).round() as i32,
+                            z: (position.z * 32.0).round() as i32,
+                            yaw,
+                            pitch,
+                        },
+                    )
+                    .unwrap(),
+                );
             }
-
-            stream.flush().unwrap();
         }
     }
 }
 
 pub fn correct_player_position(
+    mut packet_event_emitter: EventWriter<SendPacketEvent>,
     (mut query, mut other): (
-        Query<(Entity, &ClientStream), With<connection_state::Playing>>,
+        Query<Entity, With<connection_state::Playing>>,
         Query<(Entity, &Position, &Look), With<connection_state::Playing>>,
     ),
 ) {
-    for (entity, stream_component) in &mut query {
-        let mut stream: RwLockWriteGuard<'_, TcpStream> = stream_component.stream.write().unwrap();
+    for entity in &mut query {
         for (other, position, look) in &mut other {
             if entity.index() == other.index() {
                 continue;
@@ -296,17 +329,20 @@ pub fn correct_player_position(
 
             let (yaw, pitch) = crate::util::pack_float_pair(look.yaw, look.pitch);
 
-            let packet = to_client_packets::EntityTeleportPacket {
-                entity_id: other.index(),
-                x: (position.x * 32.0).round() as i32,
-                y: (position.y * 32.0).round() as i32,
-                z: (position.z * 32.0).round() as i32,
-                yaw,
-                pitch,
-            };
-            stream.write_all(&packet.serialize().unwrap()).unwrap();
-
-            stream.flush().unwrap();
+            packet_event_emitter.send(
+                SendPacketEvent::new(
+                    entity,
+                    to_client_packets::EntityTeleportPacket {
+                        entity_id: other.index(),
+                        x: (position.x * 32.0).round() as i32,
+                        y: (position.y * 32.0).round() as i32,
+                        z: (position.z * 32.0).round() as i32,
+                        yaw,
+                        pitch,
+                    },
+                )
+                .unwrap(),
+            );
         }
     }
 }
@@ -358,13 +394,13 @@ pub fn digging(
 }
 
 pub fn block_change(
+    mut packet_event_emitter: EventWriter<SendPacketEvent>,
     mut world: ResMut<World>,
     mut event_collector: EventReader<BlockChangeEvent>,
-    mut query: Query<&ClientStream, With<connection_state::Playing>>,
+    mut query: Query<Entity, With<connection_state::Playing>>,
 ) {
     let events = event_collector.read().collect::<Vec<_>>();
-    for stream in &mut query {
-        let mut stream = stream.stream.write().unwrap();
+    for entity in &mut query {
         for event in events.clone() {
             let (chunk_x, chunk_z) = (event.x >> 4, event.z >> 4);
             if let Ok(chunk) = world.get_chunk(chunk_x, chunk_z) {
@@ -375,61 +411,61 @@ pub fn block_change(
                         (event.z & 15) as u8,
                         0,
                     );
-                    info!("Removed block from world: {old_block:?}");
+                    info!("Removed block from ExampleWorld: {old_block:?}");
                 } else {
                     warn!("Cloud not obtain chunk!")
                 }
             } else {
                 warn!("Chunk is unable to load!")
             }
-            let packet = to_client_packets::BlockChangePacket {
-                x: event.x,
-                y: event.y,
-                z: event.z,
-                block_type: event.ty as i8,
-                block_metadata: event.metadata as i8,
-            };
-            stream.write_all(&packet.serialize().unwrap()).unwrap();
+            packet_event_emitter.send(
+                SendPacketEvent::new(
+                    entity,
+                    to_client_packets::BlockChangePacket {
+                        x: event.x,
+                        y: event.y,
+                        z: event.z,
+                        block_type: event.ty as i8,
+                        block_metadata: event.metadata as i8,
+                    },
+                )
+                .unwrap(),
+            );
         }
-        stream.flush().unwrap();
     }
 }
 
 pub fn load_chunks(
+    mut packet_event_emitter: EventWriter<SendPacketEvent>,
     mut world: ResMut<World>,
-    mut query: Query<
-        (Entity, &Position, &ClientStream, &mut PlayerChunkDB),
-        With<connection_state::Playing>,
-    >,
+    mut query: Query<(Entity, &Position, &mut PlayerChunkDB), With<connection_state::Playing>>,
 ) {
-    for (entity, position, stream_component, mut db) in &mut query {
+    for (entity, position, mut db) in &mut query {
         // Get players chunk
         let x = position.x.floor() as i32;
         let z = position.z.floor() as i32;
         let (player_chunk_x, player_chunk_z) = (x >> 4, z >> 4);
 
-        let mut stream: RwLockWriteGuard<'_, TcpStream> = stream_component.stream.write().unwrap();
-
         let chunk_r = crate::RENDER_DISTANCE_RADIUS;
         for x in (player_chunk_x - chunk_r)..=(player_chunk_x + chunk_r) {
             for z in (player_chunk_z - chunk_r)..=(player_chunk_z + chunk_r) {
-                match world.get_chunk(x, z) {
-                    Ok(chunk) => {
-                        //debug!("Loaded chunk at (x: {x}, z: {z}).");
-                        if db.chunks.insert((x, z), chunk.clone()).is_none() {
-                            stream
-                                .write_all(
-                                    &to_client_packets::PreChunkPacket { x, z, mode: true }
-                                        .serialize()
-                                        .unwrap(),
+                if db.chunks.get(&(x, z)).is_none() {
+                    match world.get_chunk(x, z) {
+                        Ok(chunk) => {
+                            debug!("Loaded chunk at (x: {x}, z: {z}).");
+                            if db.chunks.insert((x, z), chunk.clone()).is_none() {
+                                let packet = SendPacketEvent::with_ord(
+                                    entity,
+                                    1,
+                                    to_client_packets::PreChunkPacket { x, z, mode: true },
                                 )
                                 .unwrap();
-
-                            let (len, chunk_data) = chunk.read().unwrap().get_compressed_data();
-
-                            stream
-                                .write_all(
-                                    &to_client_packets::MapChunkPacket {
+                                packet_event_emitter.send(packet);
+                                let (len, chunk_data) = chunk.read().unwrap().get_compressed_data();
+                                let packet = SendPacketEvent::with_ord(
+                                    entity,
+                                    2,
+                                    to_client_packets::MapChunkPacket {
                                         x: x * 16,
                                         y: 0,
                                         z: z * 16,
@@ -438,37 +474,32 @@ pub fn load_chunks(
                                         size_z: 15,
                                         compressed_size: len,
                                         compressed_data: chunk_data[..len as usize].to_vec(),
-                                    }
-                                    .serialize()
-                                    .unwrap(),
+                                    },
                                 )
                                 .unwrap();
+                                packet_event_emitter.send(packet);
+                            }
                         }
-                    }
-                    Err(err) => {
-                        //error!("Failed to load chunk at (x: {x}, z: {z}): {err}!")
+                        Err(err) => {
+                            error!("Failed to load chunk at (x: {x}, z: {z}): {err}!")
+                        }
                     }
                 }
             }
         }
-        stream.flush().unwrap();
     }
 }
 
 pub fn unload_chunks(
+    mut packet_event_emitter: EventWriter<SendPacketEvent>,
     mut world: ResMut<World>,
-    mut query: Query<
-        (Entity, &Position, &ClientStream, &mut PlayerChunkDB),
-        With<connection_state::Playing>,
-    >,
+    mut query: Query<(Entity, &Position, &mut PlayerChunkDB), With<connection_state::Playing>>,
 ) {
-    for (entity, position, stream_component, mut db) in &mut query {
+    for (entity, position, mut db) in &mut query {
         // Get players chunk
         let x = position.x.floor() as i32;
         let z = position.z.floor() as i32;
         let (player_chunk_x, player_chunk_z) = (x >> 4, z >> 4);
-
-        let mut stream: RwLockWriteGuard<'_, TcpStream> = stream_component.stream.write().unwrap();
 
         let chunk_r = crate::RENDER_DISTANCE_RADIUS;
         let mut loaded = Vec::with_capacity(
@@ -486,34 +517,33 @@ pub fn unload_chunks(
             .copied()
             .collect::<Vec<_>>();
         for (x, z) in to_remove {
+            debug!("Unloaded chunk at (x: {x}, z: {z}).");
             if db.chunks.remove(&(x, z)).is_some() {
                 let _ = world.unload_chunk(x, z);
             }
-            stream
-                .write_all(
-                    &to_client_packets::PreChunkPacket { x, z, mode: false }
-                        .serialize()
-                        .unwrap(),
+            packet_event_emitter.send(
+                SendPacketEvent::with_ord(
+                    entity,
+                    3,
+                    to_client_packets::PreChunkPacket { x, z, mode: false },
                 )
-                .unwrap();
+                .unwrap(),
+            );
         }
     }
 }
 
 pub fn increment_time(
+    mut packet_event_emitter: EventWriter<SendPacketEvent>,
     mut world: ResMut<World>,
-    mut query: Query<&ClientStream, With<connection_state::Playing>>,
+    mut query: Query<Entity, With<connection_state::Playing>>,
 ) {
     let current_time = world.get_time();
     world.set_time(current_time + 20);
     let packet = to_client_packets::TimeUpdatePacket {
         time: world.get_time(),
-    }
-    .serialize()
-    .unwrap();
-    for stream_component in &mut query {
-        let mut stream: RwLockWriteGuard<'_, TcpStream> = stream_component.stream.write().unwrap();
-        stream.write_all(&packet).unwrap();
-        stream.flush().unwrap();
+    };
+    for entity in &mut query {
+        packet_event_emitter.send(SendPacketEvent::new(entity, packet.clone()).unwrap());
     }
 }

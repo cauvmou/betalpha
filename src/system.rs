@@ -1,7 +1,8 @@
 use crate::entity::{connection_state, Digging, PreviousPosition};
 use crate::entity::{Look, Named, PlayerBundle, PlayerChunkDB, PlayerEntityDB, Position, Velocity};
 use crate::event::{
-    BlockChangeEvent, PlayerDiggingEvent, PlayerPositionAndLookEvent, SendPacketEvent,
+    AnimationEvent, BlockChangeEvent, PlayerDiggingEvent, PlayerPositionAndLookEvent,
+    SendPacketEvent,
 };
 use crate::packet::{ids, to_client_packets, to_server_packets, PacketError};
 use crate::packet::{Deserialize, Serialize};
@@ -436,6 +437,24 @@ pub fn block_change(
                 .unwrap(),
             );
         }
+    }
+}
+
+pub fn animation(
+    mut packet_event_emitter: EventWriter<SendPacketEvent>,
+    mut event_collector: EventReader<AnimationEvent>,
+    mut query: Query<Entity, With<connection_state::Playing>>,
+) {
+    let animations = event_collector.read().collect::<Vec<_>>();
+    for entity in &mut query {
+        animations
+            .iter()
+            .filter(|e| e.entity != entity)
+            .map(|e| to_client_packets::AnimationPacket {
+                entity_id: e.entity.index(),
+                animate: e.animation,
+            })
+            .for_each(|p| packet_event_emitter.send(SendPacketEvent::new(entity, p).unwrap()));
     }
 }
 

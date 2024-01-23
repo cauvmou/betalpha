@@ -467,9 +467,9 @@ pub mod to_server_packets {
     }
     #[serialize(0x12)]
     #[derive(Debug, Clone, Deserialize)]
-    pub struct ArmAnimationPacket {
+    pub struct AnimationPacket {
         pub entity_id: u32,
-        pub animate: bool,
+        pub animate: u8,
     }
     #[serialize(0x15)]
     #[derive(Debug, Clone, Deserialize)]

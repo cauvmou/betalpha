@@ -35,6 +35,7 @@ fn main() -> std::io::Result<()> {
         .add_event::<event::SystemMessageEvent>()
         .add_event::<event::PlayerDiggingEvent>()
         .add_event::<event::BlockChangeEvent>()
+        .add_event::<event::AnimationEvent>()
         .add_systems(
             schedule::CoreLabel(),
             (
@@ -62,6 +63,7 @@ fn main() -> std::io::Result<()> {
                 system::correct_player_position,
                 system::player_movement,
                 system::move_player,
+                system::animation,
             ),
         )
         .add_systems(
@@ -427,6 +429,7 @@ mod core {
         mut chat_message_event_emitter: EventWriter<event::ChatMessageEvent>,
         mut position_and_look_event_emitter: EventWriter<event::PlayerPositionAndLookEvent>,
         mut player_digging_event_emitter: EventWriter<event::PlayerDiggingEvent>,
+        mut animation_event_emitter: EventWriter<event::AnimationEvent>,
         mut query: Query<(Entity, &ClientStream, &Named), (With<connection_state::Playing>)>,
         mut commands: Commands,
     ) {
@@ -574,9 +577,13 @@ mod core {
                             );
                         }
                         ids::ANIMATION => {
-                            let packet = to_server_packets::ArmAnimationPacket::nested_deserialize(
+                            let packet = to_server_packets::AnimationPacket::nested_deserialize(
                                 &mut cursor,
                             )?;
+                            animation_event_emitter.send(event::AnimationEvent {
+                                entity,
+                                animation: packet.animate,
+                            })
                         }
                         ids::PLAYER_DIGGING => {
                             let packet =

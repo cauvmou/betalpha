@@ -133,3 +133,9 @@ impl Ord for SendPacketEvent {
         self.ord.cmp(&other.ord)
     }
 }
+
+#[derive(Event)]
+pub struct AnimationEvent {
+    pub entity: Entity,
+    pub animation: u8,
+}

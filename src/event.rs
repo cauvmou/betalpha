@@ -139,3 +139,10 @@ pub struct AnimationEvent {
     pub entity: Entity,
     pub animation: u8,
 }
+
+#[derive(Event)]
+pub struct PlayerUseEvent {
+    pub entity: Entity,
+    pub target: Entity,
+    pub left_click: bool,
+}

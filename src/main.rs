@@ -20,7 +20,7 @@ pub(crate) const BUFFER_SIZE: usize = 1024 * 8;
 pub(crate) const RENDER_DISTANCE_RADIUS: i32 = 4; // Diameter of chunks to send to player in `Initializing` state.
 
 fn main() -> std::io::Result<()> {
-    simple_logger::init_with_level(Level::Debug).expect("Failed to initialize logging!");
+    simple_logger::init_with_level(Level::Info).expect("Failed to initialize logging!");
     let listener = TcpListener::bind("0.0.0.0:25565")?;
     listener.set_nonblocking(true)?;
     App::new()
@@ -36,6 +36,7 @@ fn main() -> std::io::Result<()> {
         .add_event::<event::PlayerDiggingEvent>()
         .add_event::<event::BlockChangeEvent>()
         .add_event::<event::AnimationEvent>()
+        .add_event::<event::PlayerUseEvent>()
         .add_systems(
             schedule::CoreLabel(),
             (
@@ -64,6 +65,7 @@ fn main() -> std::io::Result<()> {
                 system::player_movement,
                 system::move_player,
                 system::animation,
+                system::player_use,
             ),
         )
         .add_systems(
@@ -115,6 +117,7 @@ mod core {
         ClientStream, Look, Named, PlayerBundle, PlayerChunkDB, PlayerEntityDB, PreviousPosition,
         Velocity,
     };
+    use crate::event::PlayerUseEvent;
     use crate::packet::{ids, to_client_packets, to_server_packets, PacketError};
     use crate::packet::{Deserialize, Serialize};
     use crate::world::{Chunk, World};
@@ -430,6 +433,7 @@ mod core {
         mut position_and_look_event_emitter: EventWriter<event::PlayerPositionAndLookEvent>,
         mut player_digging_event_emitter: EventWriter<event::PlayerDiggingEvent>,
         mut animation_event_emitter: EventWriter<event::AnimationEvent>,
+        mut player_use_event_emitter: EventWriter<event::PlayerUseEvent>,
         mut query: Query<(Entity, &ClientStream, &Named), (With<connection_state::Playing>)>,
         mut commands: Commands,
     ) {
@@ -610,6 +614,16 @@ mod core {
                             if let Some(event) = event {
                                 player_digging_event_emitter.send(event)
                             }
+                        }
+                        ids::USE_ENTITY => {
+                            let packet = to_server_packets::UseEntityPacket::nested_deserialize(
+                                &mut cursor,
+                            )?;
+                            player_use_event_emitter.send(PlayerUseEvent {
+                                entity,
+                                target: Entity::from_raw(packet.target_id),
+                                left_click: packet.is_left_click,
+                            })
                         }
                         ids::KICK_OR_DISCONNECT => {
                             let packet = to_server_packets::DisconnectPacket::nested_deserialize(

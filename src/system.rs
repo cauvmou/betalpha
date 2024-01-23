@@ -8,6 +8,7 @@ use crate::packet::{Deserialize, Serialize};
 use crate::world::{Chunk, World};
 use crate::{event, packet, util, TcpWrapper, BUFFER_SIZE};
 use bevy::prelude::{Commands, Entity, EventReader, EventWriter, Mut, Query, Res, ResMut, With};
+use bevy::utils::tracing::Instrument;
 use bytes::{Buf, BufMut, BytesMut};
 use log::{debug, error, info, warn};
 use std::collections::HashMap;
@@ -44,7 +45,10 @@ pub fn disconnecting(
             )
             .unwrap(),
         );
-        commands.entity(entity).despawn();
+        commands
+            .entity(entity)
+            .remove::<connection_state::Disconnecting>()
+            .insert(connection_state::Invalid);
         // Delete player for other players
         for (other, db) in &mut other {
             let mut list: RwLockWriteGuard<Vec<u32>> = db.visible_entities.write().unwrap();
@@ -501,19 +505,17 @@ pub fn unload_chunks(
         let z = position.z.floor() as i32;
         let (player_chunk_x, player_chunk_z) = (x >> 4, z >> 4);
 
-        let chunk_r = crate::RENDER_DISTANCE_RADIUS;
-        let mut loaded = Vec::with_capacity(
-            crate::RENDER_DISTANCE_RADIUS as usize * crate::RENDER_DISTANCE_RADIUS as usize,
-        );
+        let chunk_r = crate::RENDER_DISTANCE_RADIUS * 2; // Buffer zone
+        let mut allowed_chunks = Vec::with_capacity(chunk_r as usize * chunk_r as usize);
         for x in (player_chunk_x - chunk_r)..=(player_chunk_x + chunk_r) {
             for z in (player_chunk_z - chunk_r)..=(player_chunk_z + chunk_r) {
-                loaded.push((x, z));
+                allowed_chunks.push((x, z));
             }
         }
         let to_remove = db
             .chunks
             .keys()
-            .filter(|k| !loaded.contains(*k))
+            .filter(|k| !allowed_chunks.contains(*k))
             .copied()
             .collect::<Vec<_>>();
         for (x, z) in to_remove {

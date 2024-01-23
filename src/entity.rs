@@ -70,6 +70,8 @@ pub mod connection_state {
     pub struct Disconnecting {
         pub reason: String,
     }
+    #[derive(Component)]
+    pub struct Invalid;
 }
 
 #[derive(Component)]

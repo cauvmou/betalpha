@@ -17,7 +17,7 @@ mod util;
 mod world;
 
 pub(crate) const BUFFER_SIZE: usize = 1024 * 8;
-pub(crate) const RENDER_DISTANCE_RADIUS: i32 = 8; // Diameter of chunks to send to player in `Initializing` state.
+pub(crate) const RENDER_DISTANCE_RADIUS: i32 = 4; // Diameter of chunks to send to player in `Initializing` state.
 
 fn main() -> std::io::Result<()> {
     simple_logger::init_with_level(Level::Debug).expect("Failed to initialize logging!");
@@ -28,7 +28,6 @@ fn main() -> std::io::Result<()> {
         .add_schedule(Schedule::new(schedule::ServerTickLabel()))
         .add_schedule(Schedule::new(schedule::SecondTickLabel()))
         .add_schedule(Schedule::new(schedule::ChunkLabel()))
-        .add_schedule(Schedule::new(schedule::MovementLabel()))
         .add_schedule(Schedule::new(schedule::AfterTickLabel()))
         .add_event::<event::SendPacketEvent>()
         .add_event::<event::ChatMessageEvent>()
@@ -45,13 +44,10 @@ fn main() -> std::io::Result<()> {
                 core::event_emitter_system,
             ),
         )
+        // TODO: Chunks need to be loaded more async, because loading and unloading them causes lag.
         .add_systems(
             schedule::ChunkLabel(),
             (system::load_chunks, system::unload_chunks),
-        )
-        .add_systems(
-            schedule::MovementLabel(),
-            (system::player_movement, system::move_player),
         )
         .add_systems(
             schedule::ServerTickLabel(),
@@ -60,13 +56,18 @@ fn main() -> std::io::Result<()> {
                 system::chat_message,
                 system::system_message,
                 system::disconnecting,
-                system::correct_player_position,
                 system::digging,
                 system::block_change,
                 system::calculate_visible_players,
+                system::correct_player_position,
+                system::player_movement,
+                system::move_player,
             ),
         )
-        .add_systems(schedule::AfterTickLabel(), (core::send_packets_system))
+        .add_systems(
+            schedule::AfterTickLabel(),
+            (core::send_packets_system, core::remove_invalid_players),
+        )
         //.add_systems(schedule::SecondTickLabel(), (system::increment_time,))
         .edit_schedule(schedule::CoreLabel(), |s| {
             s.set_executor_kind(ExecutorKind::MultiThreaded);
@@ -84,9 +85,8 @@ fn main() -> std::io::Result<()> {
             let mut second_instant = Instant::now();
             loop {
                 app.world.run_schedule(schedule::CoreLabel());
+                app.world.run_schedule(schedule::ChunkLabel());
                 if instant.elapsed().as_millis() >= 50 {
-                    app.world.run_schedule(schedule::ChunkLabel());
-                    app.world.run_schedule(schedule::MovementLabel());
                     app.world.run_schedule(schedule::ServerTickLabel());
                     instant = Instant::now();
                 }
@@ -384,7 +384,7 @@ mod core {
                 ));
             }
             // Transition state from `Initializing` to `Playing`
-            info!("{} joined the ExampleWorld!", name_component.name);
+            info!("{} joined the world!", name_component.name);
             commands
                 .entity(entity)
                 .remove::<connection_state::Initializing>()
@@ -394,7 +394,7 @@ mod core {
 
     pub fn send_packets_system(
         mut packet_send_collector: EventReader<event::SendPacketEvent>,
-        mut query: Query<(Entity, &ClientStream), (With<connection_state::Playing>)>,
+        mut query: Query<(Entity, &ClientStream)>,
     ) {
         let mut packets_to_send = packet_send_collector.read().collect::<Vec<_>>();
         packets_to_send.sort();
@@ -409,6 +409,15 @@ mod core {
                     stream.write_all(&p.bytes).unwrap();
                 });
             stream.flush().unwrap();
+        }
+    }
+
+    pub fn remove_invalid_players(
+        mut query: Query<Entity, With<connection_state::Invalid>>,
+        mut commands: Commands,
+    ) {
+        for entity in &mut query {
+            commands.entity(entity).despawn();
         }
     }
 
@@ -454,7 +463,7 @@ mod core {
                     | ErrorKind::TimedOut => {
                         // Transition state from `Playing` to `Disconnecting`
                         info!(
-                            "{} left the ExampleWorld, because of error {err}",
+                            "{} left the world, because of error {err}",
                             name_component.name
                         );
                         commands
@@ -599,13 +608,10 @@ mod core {
                             let packet = to_server_packets::DisconnectPacket::nested_deserialize(
                                 &mut cursor,
                             )?;
-                            info!(
-                                "{} left the ExampleWorld: {}",
-                                name_component.name, packet.reason
-                            );
+                            info!("{} left the world: {}", name_component.name, packet.reason);
                             system_message_event_emitter.send(event::SystemMessageEvent {
                                 message: format!(
-                                    "{} left the ExampleWorld [{:?}]",
+                                    "{} left the world [{:?}]",
                                     name_component.name, packet.reason
                                 ),
                             });
@@ -659,9 +665,6 @@ mod schedule {
 
     #[derive(ScheduleLabel, Debug, Clone, PartialEq, Eq, Hash)]
     pub struct ChunkLabel();
-
-    #[derive(ScheduleLabel, Debug, Clone, PartialEq, Eq, Hash)]
-    pub struct MovementLabel();
 
     #[derive(ScheduleLabel, Debug, Clone, PartialEq, Eq, Hash)]
     pub struct ServerTickLabel();

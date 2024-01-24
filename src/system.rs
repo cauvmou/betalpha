@@ -1,8 +1,8 @@
 use crate::entity::{connection_state, Digging, PreviousPosition};
-use crate::entity::{Look, Named, PlayerBundle, PlayerChunkDB, PlayerEntityDB, Position, Velocity};
+use crate::entity::{Look, Named, PlayerChunkDB, PlayerEntityDB, Position, Velocity};
 use crate::event::{
-    AnimationEvent, BlockChangeEvent, PlayerDiggingEvent, PlayerPositionAndLookEvent,
-    PlayerUseEvent, SendPacketEvent,
+    AnimationEvent, BlockChangeEvent, PlayerBlockPlacementEvent, PlayerDiggingEvent,
+    PlayerPositionAndLookEvent, PlayerUseEvent, SendPacketEvent,
 };
 use crate::packet::{ids, to_client_packets, to_server_packets, PacketError};
 use crate::packet::{Deserialize, Serialize};
@@ -398,6 +398,26 @@ pub fn digging(
     }
 }
 
+pub fn placing(
+    mut event_collector: EventReader<PlayerBlockPlacementEvent>,
+    mut event_emitter: EventWriter<BlockChangeEvent>,
+    mut query: Query<Entity, With<connection_state::Playing>>,
+    mut commands: Commands,
+) {
+    for event in event_collector.read() {
+        for player in &mut query {
+            let (x, y, z) = event.direction.to_offset();
+            event_emitter.send(BlockChangeEvent {
+                x: event.x + x,
+                y: event.y + y,
+                z: event.z + z,
+                ty: event.id as u8,
+                metadata: 0,
+            });
+        }
+    }
+}
+
 pub fn block_change(
     mut packet_event_emitter: EventWriter<SendPacketEvent>,
     mut world: ResMut<World>,
@@ -414,7 +434,7 @@ pub fn block_change(
                         (event.x & 15) as u8,
                         event.y as u8,
                         (event.z & 15) as u8,
-                        0,
+                        event.ty,
                     );
                     info!("Removed block from ExampleWorld: {old_block:?}");
                 } else {

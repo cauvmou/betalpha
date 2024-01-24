@@ -5,19 +5,20 @@ pub mod util;
 pub use parse::*;
 pub use types::*;
 
+use crate::packet::util::get_u8;
+use crate::{packet, BUFFER_SIZE};
+use bytes::BytesMut;
 use std::error::Error;
 use std::ffi::c_void;
 use std::fmt::{Debug, Display, Formatter};
 use std::io::Cursor;
-use bytes::BytesMut;
-use crate::{BUFFER_SIZE, packet};
-use crate::packet::util::get_u8;
 
 pub enum PacketError {
     NotEnoughBytes,
     InvalidString,
     InvalidPacketID(u8),
     InvalidOptional,
+    InvalidInput(String),
     IOError(std::io::Error),
 }
 
@@ -37,6 +38,7 @@ impl Display for PacketError {
             PacketError::InvalidPacketID(id) => format!("Packet ID {id} is an invalid packet"),
             PacketError::InvalidOptional => "Invalid optional".to_string(),
             PacketError::IOError(e) => format!("IO error occured: {e}"),
+            PacketError::InvalidInput(e) => e.to_string(),
         };
         write!(f, "{text}")
     }

@@ -51,6 +51,20 @@ pub enum Face {
     UNKNOWN,
 }
 
+impl Face {
+    pub fn to_offset(&self) -> (i32, i8, i32) {
+        match self {
+            Face::Bottom => (0, -1, 0),
+            Face::Top => (0, 1, 0),
+            Face::Back => (0, 0, -1),
+            Face::Front => (0, 0, 1),
+            Face::Left => (-1, 0, 0),
+            Face::Right => (1, 0, 0),
+            Face::UNKNOWN => (0, 0, 0),
+        }
+    }
+}
+
 impl From<u8> for Face {
     fn from(value: u8) -> Self {
         match value {
@@ -82,6 +96,16 @@ pub enum PlayerDiggingEvent {
     Completed {
         entity: Entity,
     },
+}
+
+#[derive(Event, Debug)]
+pub struct PlayerBlockPlacementEvent {
+    pub entity: Entity,
+    pub id: u16,
+    pub x: i32,
+    pub y: i8,
+    pub z: i32,
+    pub direction: Face,
 }
 
 #[derive(Event)]

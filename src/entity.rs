@@ -1,5 +1,7 @@
+use crate::packet::to_client_packets::PlayerInventoryPacket;
+use crate::packet::PacketError;
 use crate::world::Chunk;
-use crate::BUFFER_SIZE;
+use crate::{packet, BUFFER_SIZE};
 use bevy::prelude::{Bundle, Component};
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -114,10 +116,99 @@ pub struct Digging {
     pub face: crate::event::Face,
 }
 
-#[derive(Bundle)]
-pub struct PlayerBundle {
-    pub stream: ClientStream,
-    pub position: PreviousPosition,
-    pub velocity: Velocity,
-    pub look: Look,
+#[derive(Copy, Clone)]
+pub struct Item {
+    pub id: u16,
+    pub count: u8,
+    pub uses_left: u16,
+}
+
+pub struct InventoryArea<const N: usize> {
+    items: [Option<Item>; N],
+}
+
+impl<const N: usize> InventoryArea<N> {
+    pub fn new() -> Self {
+        Self { items: [None; N] }
+    }
+
+    pub fn create_with_data() -> Self {
+        let mut s = Self::new();
+        s.items[0] = Some(Item {
+            id: 1,
+            count: 64,
+            uses_left: 0,
+        });
+        s
+    }
+}
+
+#[derive(Component)]
+pub struct Inventory {
+    main: InventoryArea<36>,
+    armor: InventoryArea<4>,
+    crafting: InventoryArea<4>,
+}
+
+impl Inventory {
+    pub fn new() -> Self {
+        Self {
+            main: InventoryArea::create_with_data(),
+            armor: InventoryArea::new(),
+            crafting: InventoryArea::new(),
+        }
+    }
+
+    pub fn update_from_raw(&mut self, packet: PlayerInventoryPacket) {
+        if let Some(inv) = match packet.inventory_type {
+            -1 => Some(self.main.items.as_mut_slice()),
+            -2 => Some(self.armor.items.as_mut_slice()),
+            -3 => Some(self.crafting.items.as_mut_slice()),
+            _ => None,
+        } {
+            for index in 0..packet.count as usize {
+                inv[index] = packet.items[index].map(|v| Item {
+                    id: v.item_id as u16,
+                    count: v.count as u8,
+                    uses_left: v.uses as u16,
+                });
+            }
+        }
+    }
+
+    pub fn to_raw_packet(&self, inventory_type: i32) -> Result<PlayerInventoryPacket, PacketError> {
+        if let Some(inv) = match inventory_type {
+            -1 => Some(self.main.items.iter()),
+            -2 => Some(self.armor.items.iter()),
+            -3 => Some(self.crafting.items.iter()),
+            _ => None,
+        } {
+            let packet = PlayerInventoryPacket {
+                inventory_type,
+                count: inv.len() as i16,
+                items: inv
+                    .map(|item| {
+                        if let Some(item) = item {
+                            Some(packet::to_client_packets::Item {
+                                item_id: item.id as i16,
+                                count: item.count as i8,
+                                uses: item.uses_left as i16,
+                            })
+                        } else {
+                            None
+                        }
+                    })
+                    .collect(),
+            };
+            Ok(packet)
+        } else {
+            Err(PacketError::InvalidInput(format!(
+                "Invalid inventory type: {inventory_type}"
+            )))
+        }
+    }
+
+    /*
+
+    */
 }

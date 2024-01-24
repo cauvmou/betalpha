@@ -1,5 +1,5 @@
 use crate::entity::connection_state::Login;
-use crate::entity::{ClientStream, PlayerBundle};
+use crate::entity::ClientStream;
 use crate::packet::to_server_packets;
 use crate::world::World;
 use bevy::ecs::schedule::ExecutorKind;
@@ -37,6 +37,7 @@ fn main() -> std::io::Result<()> {
         .add_event::<event::BlockChangeEvent>()
         .add_event::<event::AnimationEvent>()
         .add_event::<event::PlayerUseEvent>()
+        .add_event::<event::PlayerBlockPlacementEvent>()
         .add_systems(
             schedule::CoreLabel(),
             (
@@ -59,6 +60,7 @@ fn main() -> std::io::Result<()> {
                 system::system_message,
                 system::disconnecting,
                 system::digging,
+                system::placing,
                 system::block_change,
                 system::calculate_visible_players,
                 system::correct_player_position,
@@ -112,12 +114,11 @@ struct TcpWrapper {
 
 mod core {
     use crate::byte_man::{get_string, get_u8};
-    use crate::entity::{connection_state, Position};
+    use crate::entity::{connection_state, Inventory, Position};
     use crate::entity::{
-        ClientStream, Look, Named, PlayerBundle, PlayerChunkDB, PlayerEntityDB, PreviousPosition,
-        Velocity,
+        ClientStream, Look, Named, PlayerChunkDB, PlayerEntityDB, PreviousPosition, Velocity,
     };
-    use crate::event::PlayerUseEvent;
+    use crate::event::Face;
     use crate::packet::{ids, to_client_packets, to_server_packets, PacketError};
     use crate::packet::{Deserialize, Serialize};
     use crate::world::{Chunk, World};
@@ -359,6 +360,14 @@ mod core {
                     .write_all(&position_and_look_packet.serialize().unwrap())
                     .unwrap();
                 stream.flush().unwrap();
+
+                // Send Inv
+                let inv = Inventory::new();
+                stream
+                    .write_all(&inv.to_raw_packet(-1).unwrap().serialize().unwrap())
+                    .unwrap();
+                stream.flush().unwrap();
+
                 commands.entity(entity).insert((
                     Position {
                         x: world.get_spawn()[0] as f64,
@@ -379,6 +388,7 @@ mod core {
                     //     y: 0.0,
                     //     z: 0.0,
                     // },
+                    inv,
                     Look {
                         yaw: 0.0,
                         pitch: 0.0,
@@ -427,11 +437,13 @@ mod core {
     }
 
     // This is the dirty part no one wants to talk about.
+    #[allow(clippy::too_many_arguments)]
     pub fn event_emitter_system(
         mut system_message_event_emitter: EventWriter<event::SystemMessageEvent>,
         mut chat_message_event_emitter: EventWriter<event::ChatMessageEvent>,
         mut position_and_look_event_emitter: EventWriter<event::PlayerPositionAndLookEvent>,
         mut player_digging_event_emitter: EventWriter<event::PlayerDiggingEvent>,
+        mut player_block_placement_event_emitter: EventWriter<event::PlayerBlockPlacementEvent>,
         mut animation_event_emitter: EventWriter<event::AnimationEvent>,
         mut player_use_event_emitter: EventWriter<event::PlayerUseEvent>,
         mut query: Query<(Entity, &ClientStream, &Named), (With<connection_state::Playing>)>,
@@ -615,15 +627,43 @@ mod core {
                                 player_digging_event_emitter.send(event)
                             }
                         }
+                        ids::PLAYER_BLOCK_PLACEMENT => {
+                            let packet =
+                                to_server_packets::PlayerBlockPlacementPacket::nested_deserialize(
+                                    &mut cursor,
+                                )?;
+                            player_block_placement_event_emitter.send(
+                                event::PlayerBlockPlacementEvent {
+                                    entity,
+                                    id: packet.item_id as u16,
+                                    x: packet.x,
+                                    y: packet.y,
+                                    z: packet.z,
+                                    direction: Face::from(packet.face as u8),
+                                },
+                            )
+                        }
                         ids::USE_ENTITY => {
                             let packet = to_server_packets::UseEntityPacket::nested_deserialize(
                                 &mut cursor,
                             )?;
-                            player_use_event_emitter.send(PlayerUseEvent {
+                            player_use_event_emitter.send(event::PlayerUseEvent {
                                 entity,
                                 target: Entity::from_raw(packet.target_id),
                                 left_click: packet.is_left_click,
                             })
+                        }
+                        ids::PLAYER_INVENTORY => {
+                            let packet =
+                                to_client_packets::PlayerInventoryPacket::nested_deserialize(
+                                    &mut cursor,
+                                )?;
+                        }
+                        ids::HOLDING_CHANGE => {
+                            let packet =
+                                to_server_packets::HoldingChangePacket::nested_deserialize(
+                                    &mut cursor,
+                                )?;
                         }
                         ids::KICK_OR_DISCONNECT => {
                             let packet = to_server_packets::DisconnectPacket::nested_deserialize(

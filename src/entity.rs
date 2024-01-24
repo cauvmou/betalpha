@@ -134,11 +134,14 @@ impl<const N: usize> InventoryArea<N> {
 
     pub fn create_with_data() -> Self {
         let mut s = Self::new();
-        s.items[0] = Some(Item {
-            id: 1,
-            count: 64,
-            uses_left: 0,
-        });
+        let ids: &[u16] = &[1, 2, 3, 4, 5, 6, 7, 12, 13, 14, 15, 16, 17];
+        for (index, id) in ids.iter().enumerate() {
+            s.items[index] = Some(Item {
+                id: *id,
+                count: 64,
+                uses_left: 0,
+            });
+        }
         s
     }
 }

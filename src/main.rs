@@ -27,8 +27,8 @@ fn main() -> std::io::Result<()> {
         .add_schedule(Schedule::new(schedule::CoreLabel()))
         .add_schedule(Schedule::new(schedule::ServerTickLabel()))
         .add_schedule(Schedule::new(schedule::SecondTickLabel()))
-        .add_schedule(Schedule::new(schedule::ChunkLabel()))
-        .add_schedule(Schedule::new(schedule::AfterTickLabel()))
+        .add_schedule(Schedule::new(schedule::ImmediateLabel()))
+        .add_schedule(Schedule::new(schedule::AfterUpdateLabel()))
         .add_event::<event::SendPacketEvent>()
         .add_event::<event::ChatMessageEvent>()
         .add_event::<event::PlayerPositionAndLookEvent>()
@@ -49,7 +49,7 @@ fn main() -> std::io::Result<()> {
         )
         // TODO: Chunks need to be loaded more async, because loading and unloading them causes lag.
         .add_systems(
-            schedule::ChunkLabel(),
+            schedule::ImmediateLabel(),
             (system::load_chunks, system::unload_chunks),
         )
         .add_systems(
@@ -71,7 +71,7 @@ fn main() -> std::io::Result<()> {
             ),
         )
         .add_systems(
-            schedule::AfterTickLabel(),
+            schedule::AfterUpdateLabel(),
             (core::send_packets_system, core::remove_invalid_players),
         )
         //.add_systems(schedule::SecondTickLabel(), (system::increment_time,))
@@ -81,7 +81,7 @@ fn main() -> std::io::Result<()> {
         .edit_schedule(schedule::ServerTickLabel(), |s| {
             s.set_executor_kind(ExecutorKind::MultiThreaded);
         })
-        .edit_schedule(schedule::ChunkLabel(), |s| {
+        .edit_schedule(schedule::ImmediateLabel(), |s| {
             s.set_executor_kind(ExecutorKind::MultiThreaded);
         })
         .insert_resource(World::open("./ExampleWorld")?)
@@ -91,7 +91,7 @@ fn main() -> std::io::Result<()> {
             let mut second_instant = Instant::now();
             loop {
                 app.world.run_schedule(schedule::CoreLabel());
-                app.world.run_schedule(schedule::ChunkLabel());
+                app.world.run_schedule(schedule::ImmediateLabel());
                 if instant.elapsed().as_millis() >= 50 {
                     app.world.run_schedule(schedule::ServerTickLabel());
                     instant = Instant::now();
@@ -100,7 +100,7 @@ fn main() -> std::io::Result<()> {
                     app.world.run_schedule(schedule::SecondTickLabel());
                     second_instant = Instant::now();
                 }
-                app.world.run_schedule(schedule::AfterTickLabel());
+                app.world.run_schedule(schedule::AfterUpdateLabel());
             }
         })
         .run();
@@ -725,7 +725,7 @@ mod schedule {
     pub struct CoreLabel();
 
     #[derive(ScheduleLabel, Debug, Clone, PartialEq, Eq, Hash)]
-    pub struct ChunkLabel();
+    pub struct ImmediateLabel();
 
     #[derive(ScheduleLabel, Debug, Clone, PartialEq, Eq, Hash)]
     pub struct ServerTickLabel();
@@ -734,5 +734,5 @@ mod schedule {
     pub struct SecondTickLabel();
 
     #[derive(ScheduleLabel, Debug, Clone, PartialEq, Eq, Hash)]
-    pub struct AfterTickLabel();
+    pub struct AfterUpdateLabel();
 }
